@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.git/
+.claude/
+.progress
+.env.production
+package-lock.json
