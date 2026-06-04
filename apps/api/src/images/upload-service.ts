@@ -1,4 +1,3 @@
-import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import Busboy from "busboy";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -8,7 +7,6 @@ import type { Pool } from "pg";
 import sharp from "sharp";
 import { HttpError } from "../errors/http-error.js";
 import type { ObjectStorageClient } from "../storage/client.js";
-import { toObjectStorageKey } from "../storage/keys.js";
 import { createImageRecord } from "./image-repository.js";
 import {
   ALLOWED_IMAGE_CONTENT_TYPES,
@@ -157,19 +155,16 @@ async function readUploadStream(stream: Readable): Promise<StreamedFile> {
 async function putFileToObjectStorage(
   file: StreamedFile,
   storage: ObjectStorageClient,
-  fullKey: string,
+  relativeKey: string,
   contentType: string,
 ): Promise<void> {
   try {
-    await storage.s3.send(
-      new PutObjectCommand({
-        Bucket: storage.config.bucket,
-        Key: fullKey,
-        Body: file.buffer,
-        ContentLength: file.size,
-        ContentType: contentType,
-      }),
-    );
+    await storage.putObject({
+      relativeKey,
+      body: file.buffer,
+      contentLength: file.size,
+      contentType,
+    });
   } catch {
     throw new UploadStorageError(
       "storage_upload_failed",
@@ -181,11 +176,11 @@ async function putFileToObjectStorage(
 async function streamFileToObjectStorage(
   stream: Readable,
   storage: ObjectStorageClient,
-  fullKey: string,
+  relativeKey: string,
   contentType: string,
 ): Promise<StreamedFile> {
   const streamedFile = await readUploadStream(stream);
-  await putFileToObjectStorage(streamedFile, storage, fullKey, contentType);
+  await putFileToObjectStorage(streamedFile, storage, relativeKey, contentType);
 
   return streamedFile;
 }
@@ -203,13 +198,11 @@ async function readImageDimensions(buffer: Buffer): Promise<{ width: number; hei
   };
 }
 
-async function deleteUploadedObject(storage: ObjectStorageClient, fullKey: string): Promise<void> {
-  await storage.s3.send(
-    new DeleteObjectCommand({
-      Bucket: storage.config.bucket,
-      Key: fullKey,
-    }),
-  );
+async function deleteUploadedObject(
+  storage: ObjectStorageClient,
+  relativeKey: string,
+): Promise<void> {
+  await storage.deleteObject(relativeKey);
 }
 
 async function processImageFile(
@@ -227,14 +220,13 @@ async function processImageFile(
 
   const filename = sanitizeFilename(fileInfo.filename);
   const relativeKey = buildRelativeStorageKey(filename);
-  const fullKey = toObjectStorageKey(dependencies.storage.config, relativeKey);
   let uploadedObject = false;
 
   try {
     const streamedFile = await streamFileToObjectStorage(
       stream,
       dependencies.storage,
-      fullKey,
+      relativeKey,
       fileInfo.mimeType,
     );
     uploadedObject = true;
@@ -256,7 +248,7 @@ async function processImageFile(
   } catch (error) {
     if (uploadedObject) {
       try {
-        await deleteUploadedObject(dependencies.storage, fullKey);
+        await deleteUploadedObject(dependencies.storage, relativeKey);
       } catch {
         throw new UploadStorageError(
           "storage_cleanup_failed",

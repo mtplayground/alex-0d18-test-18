@@ -1,10 +1,7 @@
-import { GetObjectCommand, type GetObjectCommandOutput } from "@aws-sdk/client-s3";
 import { Router, type RequestHandler } from "express";
-import { Readable } from "node:stream";
 import type { Pool } from "pg";
 import { HttpError } from "../errors/http-error.js";
 import type { ObjectStorageClient } from "../storage/client.js";
-import { toObjectStorageKey } from "../storage/keys.js";
 import { findImageRecordsByIds, listImageRecords } from "./image-repository.js";
 import { encodeImageListCursor, decodeImageListCursor } from "./pagination.js";
 import { handleUploadRequest } from "./upload-service.js";
@@ -19,14 +16,6 @@ interface ImagesRouterDependencies {
 const DEFAULT_LIST_LIMIT = 30;
 const MAX_LIST_LIMIT = 100;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function toNodeReadable(body: GetObjectCommandOutput["Body"]): Readable {
-  if (body instanceof Readable) {
-    return body;
-  }
-
-  throw new Error("Object Storage response body was not a Node.js readable stream");
-}
 
 function readImageIdFromRequest(request: Parameters<RequestHandler>[0]): string | undefined {
   const imageId = request.params.imageId;
@@ -96,22 +85,17 @@ export function createImagesRouter(dependencies: ImagesRouterDependencies): Rout
         throw new HttpError(404, "image_not_found", "Image could not be found");
       }
 
-      const result = await dependencies.storage.s3.send(
-        new GetObjectCommand({
-          Bucket: dependencies.storage.config.bucket,
-          Key: toObjectStorageKey(dependencies.storage.config, record.storageKey),
-        }),
-      );
+      const result = await dependencies.storage.getObject(record.storageKey);
 
       response.status(200);
       response.setHeader("Content-Type", record.contentType);
       response.setHeader("Cache-Control", "private, max-age=300");
 
-      if (result.ContentLength !== undefined) {
-        response.setHeader("Content-Length", String(result.ContentLength));
+      if (result.contentLength !== undefined) {
+        response.setHeader("Content-Length", String(result.contentLength));
       }
 
-      toNodeReadable(result.Body).on("error", next).pipe(response);
+      result.body.on("error", next).pipe(response);
     } catch (error) {
       next(error);
     }

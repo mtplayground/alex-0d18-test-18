@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import type { ObjectStorageConfig } from "../src/config/storage.js";
 import type { ImageDimensions, ImageRecord } from "../src/images/image-record.js";
-import type { ObjectStorageClient } from "../src/storage/client.js";
+import { createObjectStorageClient } from "../src/storage/client.js";
 
 interface TestImageRow {
   id: string;
@@ -230,10 +230,7 @@ function createTestDependencies(
 ) {
   const database = new FakeDatabase(records);
   const s3 = new FakeS3Client(objects, s3Options);
-  const storage: ObjectStorageClient = {
-    config: STORAGE_CONFIG,
-    s3: s3 as unknown as ObjectStorageClient["s3"],
-  };
+  const storage = createObjectStorageClient(STORAGE_CONFIG, s3);
 
   return {
     app: createApp({

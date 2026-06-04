@@ -1,4 +1,3 @@
-import { GetObjectCommand, type GetObjectCommandOutput } from "@aws-sdk/client-s3";
 import archiver from "archiver";
 import { Router, type RequestHandler } from "express";
 import path from "node:path";
@@ -8,7 +7,6 @@ import { HttpError } from "../errors/http-error.js";
 import { findImageRecordsByIds } from "../images/image-repository.js";
 import type { ImageRecord } from "../images/image-record.js";
 import type { ObjectStorageClient } from "../storage/client.js";
-import { toObjectStorageKey } from "../storage/keys.js";
 
 interface DownloadsRouterDependencies {
   database: Pool;
@@ -59,14 +57,6 @@ function parseImageIds(body: unknown): string[] {
   return uniqueImageIds;
 }
 
-function toNodeReadable(body: GetObjectCommandOutput["Body"]): Readable {
-  if (body instanceof Readable) {
-    return body;
-  }
-
-  throw new Error("Object Storage response body was not a Node.js readable stream");
-}
-
 function sanitizeZipEntryName(filename: string): string {
   const basename = path.basename(filename).replaceAll(/[/\\]/g, "").trim();
 
@@ -99,15 +89,9 @@ async function getImageObjectStream(
   record: ImageRecord,
 ): Promise<Readable> {
   try {
-    const fullKey = toObjectStorageKey(storage.config, record.storageKey);
-    const result = await storage.s3.send(
-      new GetObjectCommand({
-        Bucket: storage.config.bucket,
-        Key: fullKey,
-      }),
-    );
+    const result = await storage.getObject(record.storageKey);
 
-    return toNodeReadable(result.Body);
+    return result.body;
   } catch {
     throw new HttpError(
       502,
