@@ -13,6 +13,7 @@
 - S3-compatible Object Storage for image bytes.
 - Paginated image list API and responsive gallery grid.
 - Lazy image loading and infinite scroll for large galleries.
+- Same-origin image serving route for gallery display.
 - Gallery multi-select with select-all and clear actions.
 - Download selected images as an on-demand zip archive.
 - Backend unit tests for upload, list, and zip behavior.
@@ -29,6 +30,7 @@
 - API routes:
   - `POST /api/images` uploads images.
   - `GET /api/images` lists images with cursor pagination.
+  - `GET /api/images/:imageId/content` streams an image for gallery display.
   - `POST /api/downloads/zip` streams selected images as a zip.
   - `GET /health` returns service health.
 
@@ -40,6 +42,7 @@
 - The app uses the `S3_*` environment variable scheme.
 - `S3_PREFIX` is mandatory and must end with `/`.
 - Storage keys saved in PostgreSQL are relative keys; every S3 `PutObject`, `GetObject`, and `DeleteObject` call prepends `S3_PREFIX`.
+- Gallery image URLs are same-origin API URLs; the API reads image bytes from Object Storage instead of exposing raw storage URLs to the browser.
 - No SQLite, JSON-file persistence, local upload directories, base64-in-Postgres storage, or ephemeral volume storage are part of the product.
 
 ## Runtime Configuration
