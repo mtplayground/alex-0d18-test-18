@@ -1,12 +1,11 @@
-import type { Pool } from "pg";
+import type { ImageMetadataRepository } from "./image-repository.js";
 import type { ImageListCursor } from "./pagination.js";
-import { listImageRecords } from "./image-repository.js";
 import { encodeImageListCursor } from "./pagination.js";
 import { toListImageResponse, type ListImagesResponse } from "./list-response.js";
 import { toImageContentUrl } from "./upload-response.js";
 
 export interface ListGalleryImagesDependencies {
-  database: Pool;
+  metadataRepository: ImageMetadataRepository;
 }
 
 export interface ListGalleryImagesInput {
@@ -18,7 +17,7 @@ export async function listGalleryImages(
   dependencies: ListGalleryImagesDependencies,
   input: ListGalleryImagesInput,
 ): Promise<ListImagesResponse> {
-  const records = await listImageRecords(dependencies.database, {
+  const records = await dependencies.metadataRepository.list({
     limit: input.limit + 1,
     cursor: input.cursor,
   });

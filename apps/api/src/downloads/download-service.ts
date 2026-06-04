@@ -1,15 +1,14 @@
 import { type Readable } from "node:stream";
-import type { Pool } from "pg";
 import { NotFoundError, UpstreamStorageError } from "../errors/http-error.js";
-import { findImageRecordsByIds } from "../images/image-repository.js";
+import type { ImageObjectRepository } from "../images/image-object-repository.js";
 import type { ImageRecord } from "../images/image-record.js";
-import type { ObjectStorageClient } from "../storage/client.js";
+import type { ImageMetadataRepository } from "../images/image-repository.js";
 import { parseZipImageIds } from "../validation/request-schemas.js";
 import { uniqueZipEntryName } from "./zip-entry-names.js";
 
 interface DownloadServiceDependencies {
-  database: Pool;
-  storage: ObjectStorageClient;
+  metadataRepository: ImageMetadataRepository;
+  objectRepository: ImageObjectRepository;
 }
 
 export interface ZipEntry {
@@ -23,11 +22,11 @@ export interface ZipDownload {
 }
 
 async function getImageObjectStream(
-  storage: ObjectStorageClient,
+  objectRepository: ImageObjectRepository,
   record: ImageRecord,
 ): Promise<Readable> {
   try {
-    const result = await storage.getObject(record.storageKey);
+    const result = await objectRepository.get(record.storageKey);
 
     return result.body;
   } catch {
@@ -43,7 +42,7 @@ export async function prepareZipDownload(
   body: unknown,
 ): Promise<ZipDownload> {
   const imageIds = parseZipImageIds(body);
-  const records = await findImageRecordsByIds(dependencies.database, imageIds);
+  const records = await dependencies.metadataRepository.findByIds(imageIds);
 
   if (records.length !== imageIds.length) {
     throw new NotFoundError("images_not_found", "One or more images could not be found");
@@ -55,7 +54,7 @@ export async function prepareZipDownload(
   for (const record of records) {
     entries.push({
       name: uniqueZipEntryName(record, usedNames),
-      stream: await getImageObjectStream(dependencies.storage, record),
+      stream: await getImageObjectStream(dependencies.objectRepository, record),
     });
   }
 

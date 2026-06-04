@@ -1,25 +1,19 @@
 import { Router, type RequestHandler } from "express";
-import type { Pool } from "pg";
-import type { ObjectStorageClient } from "../storage/client.js";
 import { parseImageContentRequest, parseImageListQuery } from "../validation/request-schemas.js";
 import {
   getImageContent as getImageContentFromService,
+  type ImageServiceDependencies,
   listGalleryImages,
   uploadImages as uploadImagesWithService,
 } from "./image-service.js";
 
-interface ImagesRouterDependencies {
-  database: Pool;
-  storage: ObjectStorageClient;
-}
-
-export function createImagesRouter(dependencies: ImagesRouterDependencies): Router {
+export function createImagesRouter(serviceDependencies: ImageServiceDependencies): Router {
   const router = Router();
 
   const getImageContent: RequestHandler = async (request, response, next) => {
     try {
       const imageId = parseImageContentRequest(request);
-      const result = await getImageContentFromService(dependencies, imageId);
+      const result = await getImageContentFromService(serviceDependencies, imageId);
 
       response.status(200);
       response.setHeader("Content-Type", result.contentType);
@@ -38,7 +32,7 @@ export function createImagesRouter(dependencies: ImagesRouterDependencies): Rout
   const listImages: RequestHandler = async (request, response, next) => {
     try {
       const { cursor, limit } = parseImageListQuery(request.query);
-      const body = await listGalleryImages(dependencies, {
+      const body = await listGalleryImages(serviceDependencies, {
         limit,
         cursor,
       });
@@ -51,7 +45,7 @@ export function createImagesRouter(dependencies: ImagesRouterDependencies): Rout
 
   const uploadImages: RequestHandler = async (request, response, next) => {
     try {
-      const result = await uploadImagesWithService(dependencies, request.headers, request);
+      const result = await uploadImagesWithService(serviceDependencies, request.headers, request);
       const statusCode = result.uploaded.length > 0 ? 201 : 400;
 
       response.status(statusCode).json(result);

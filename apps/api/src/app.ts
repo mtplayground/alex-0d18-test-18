@@ -7,6 +7,7 @@ import type { Pool } from "pg";
 import { createDownloadsRouter } from "./downloads/routes.js";
 import { mapErrorToHttpResponse } from "./errors/http-error.js";
 import { createImagesRouter } from "./images/routes.js";
+import { createImageServiceDependencies } from "./images/image-service.js";
 import type { ObjectStorageClient } from "./storage/client.js";
 
 export interface AppDependencies {
@@ -83,20 +84,13 @@ export function createApp(dependencies: AppDependencies = {}) {
   });
 
   if (dependencies.database !== undefined && dependencies.storage !== undefined) {
-    app.use(
-      "/api/downloads",
-      createDownloadsRouter({
-        database: dependencies.database,
-        storage: dependencies.storage,
-      }),
-    );
-    app.use(
-      "/api/images",
-      createImagesRouter({
-        database: dependencies.database,
-        storage: dependencies.storage,
-      }),
-    );
+    const serviceDependencies = createImageServiceDependencies({
+      database: dependencies.database,
+      storage: dependencies.storage,
+    });
+
+    app.use("/api/downloads", createDownloadsRouter(serviceDependencies));
+    app.use("/api/images", createImagesRouter(serviceDependencies));
   }
 
   app.use("/api", (_request, response) => {

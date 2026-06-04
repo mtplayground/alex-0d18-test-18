@@ -1,12 +1,11 @@
 import type { Readable } from "node:stream";
-import type { Pool } from "pg";
 import { NotFoundError } from "../errors/http-error.js";
-import type { ObjectStorageClient } from "../storage/client.js";
-import { findImageRecordsByIds } from "./image-repository.js";
+import type { ImageObjectRepository } from "./image-object-repository.js";
+import type { ImageMetadataRepository } from "./image-repository.js";
 
 export interface ImageContentDependencies {
-  database: Pool;
-  storage: ObjectStorageClient;
+  metadataRepository: ImageMetadataRepository;
+  objectRepository: ImageObjectRepository;
 }
 
 export interface ImageContentResult {
@@ -19,13 +18,13 @@ export async function getImageContent(
   dependencies: ImageContentDependencies,
   imageId: string,
 ): Promise<ImageContentResult> {
-  const [record] = await findImageRecordsByIds(dependencies.database, [imageId]);
+  const [record] = await dependencies.metadataRepository.findByIds([imageId]);
 
   if (record === undefined) {
     throw new NotFoundError("image_not_found", "Image could not be found");
   }
 
-  const object = await dependencies.storage.getObject(record.storageKey);
+  const object = await dependencies.objectRepository.get(record.storageKey);
 
   return {
     contentType: record.contentType,
