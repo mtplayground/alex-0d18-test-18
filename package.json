@@ -13,6 +13,7 @@
     "e2e:api": "tsx tests/e2e/api-server.ts",
     "test": "npm run test --workspaces --if-present",
     "test:e2e": "playwright test",
+    "verify:layering": "npm run build && npm test && npm run test:e2e",
     "typecheck": "npm run typecheck --workspaces",
     "lint": "eslint .",
     "format": "prettier --write .",
