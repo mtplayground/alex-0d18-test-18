@@ -2,82 +2,60 @@
 
 ## Product Context
 
-The issues define an image upload and gallery workflow: users upload multiple images, browse them in a responsive paginated gallery, select images, and download the selection as a zip. No `PRODUCT.md` is present in the repository, so this plan avoids introducing a separate product brand/name.
+`alex-0d18-test-18` is a self-hostable image upload and gallery app. The current system already supports multi-file image upload, PostgreSQL metadata persistence, S3-compatible Object Storage for image bytes, responsive gallery browsing, selection, and zip download. Issues #35-#43 are a refactor and test-hardening batch; they should preserve endpoint contracts and user-visible behavior.
 
-## Module Structure
+## Current Module Structure
 
-- `apps/web`: React + TypeScript frontend, Vite-based, styled with Tailwind.
-  - `src/app`: application shell, routing, layout, global state boundaries.
-  - `src/features/upload`: drag-and-drop multi-file upload, validation display, upload progress, per-file result states.
-  - `src/features/gallery`: paginated gallery grid, infinite scroll, thumbnail cards, selection state, select-all/clear actions.
-  - `src/features/download`: selected-image zip action and browser download handling.
-  - `src/lib/api`: typed API client, request helpers, error normalization.
-  - `src/types`: frontend-only view models where they differ from shared API contracts.
 - `apps/api`: Express + TypeScript backend.
-  - `src/server.ts`: server bootstrap and middleware setup.
-  - `src/app.ts`: Express app composition for tests and runtime.
-  - `src/config`: environment parsing and validation.
-  - `src/db`: PostgreSQL client/ORM setup and migrations.
-  - `src/storage`: S3-compatible Object Storage client and stream helpers.
-  - `src/images`: image routes, service logic, repository access, validation, DTO mapping.
-  - `src/downloads`: zip-stream creation and download route.
-  - `src/middleware`: error handling, request size limits, logging hooks.
-  - `src/test`: test fixtures and dependency fakes for DB/storage.
-- `packages/shared`: TypeScript contracts shared by frontend and backend.
-  - API request/response types for upload, list, and zip endpoints.
-  - Image metadata DTOs and common validation constants.
-  - Shared error codes used for predictable UI messaging.
-- `migrations`: database migrations if the selected DB tooling expects a root-level migration directory; otherwise keep migrations under `apps/api/src/db/migrations`.
+  - `src/app.ts`: Express composition, API mounts, SPA static serving, global error handler.
+  - `src/config`: environment parsing for PostgreSQL and Object Storage.
+  - `src/db`: PostgreSQL pool, migrations, and migration runner.
+  - `src/storage`: S3 client creation and key-prefix helpers.
+  - `src/images`: upload, list, image content route, metadata repository, pagination, response mapping, validation constants.
+  - `src/downloads`: selected-image zip route and zip assembly.
+- `apps/web`: React + Vite + Tailwind frontend.
+  - `src/app`: page shell.
+  - `src/features/upload`: upload panel, local preview queue, progress/status handling.
+  - `src/features/gallery`: gallery grid, pagination/infinite scroll, selection, and download action state.
+  - `src/lib/api`: upload/list/download API calls.
+- `packages/shared`: shared TypeScript contracts that can grow as API DTOs are centralized.
+- `tests/e2e`: Playwright upload -> display -> select -> zip download coverage.
 
-## API Shape
+## Target Refactor Shape
 
-- `POST /api/images`: multipart multi-file upload. Validates MIME type, size, and image dimensions where feasible; streams accepted files to Object Storage; stores metadata in PostgreSQL.
-- `GET /api/images?cursor=&limit=`: returns image metadata ordered by `uploaded_at DESC`, plus a URL suitable for thumbnail/display.
-- `POST /api/downloads/zip`: accepts image IDs and streams a generated zip response.
-- Health/config endpoints should stay minimal and deployment-oriented, added only if needed for Issue 17.
-
-## Data Model
-
-Primary table: `images`
-
-- `id`: stable identifier, preferably UUID.
-- `filename`: original display filename.
-- `storage_key`: Object Storage key, unique and not user-controlled.
-- `content_type`: validated image MIME type.
-- `size`: byte size.
-- `width`, `height`: dimensions, nullable only if extraction fails and validation allows that behavior.
-- `uploaded_at`: server timestamp, indexed for listing.
-
-Indexes:
-
-- `uploaded_at DESC, id DESC` for cursor pagination.
-- Unique index on `storage_key`.
+- Add a single backend storage wrapper for `PutObject`, `GetObject`, and `DeleteObject`.
+  - It owns prefix prepending, bucket selection, content-length forwarding, and S3 error translation.
+  - Callers pass relative keys only; repository rows continue storing relative keys.
+- Separate backend layers consistently.
+  - Routes/controllers parse HTTP input and return HTTP responses.
+  - Services coordinate validation, storage, zip assembly, and repository calls.
+  - Repositories own SQL and metadata mapping.
+- Split large backend handlers by workflow.
+  - Upload: request parsing, validation, image metadata extraction, storage write, persistence.
+  - List/content: pagination, record lookup, image stream retrieval.
+  - Download: request validation, record lookup, storage reads, zip stream assembly.
+- Extract frontend stateful workflows into hooks.
+  - Gallery hook: first page load, infinite scroll, refresh, selection, select-all/clear.
+  - Download hook: selected-ID validation, zip API call, browser download object URL lifecycle.
+  - Upload queue hook: file validation, preview URL lifecycle, progress, per-file status, completion callback.
+- Centralize frontend API error handling in one client helper that normalizes JSON error bodies and network failures.
 
 ## Issue Dependencies
 
-- Foundation: Issues 1-4 establish monorepo, TypeScript/linting, PostgreSQL, Object Storage, and environment handling.
-- Upload path: Issues 5-7 depend on the backend storage/DB foundation and the frontend skeleton.
-- Gallery path: Issues 8-10 depend on uploaded image metadata and list endpoint contracts.
-- Download path: Issues 11-13 depend on gallery listing, selection state, and storage reads.
-- Quality/release: Issues 14-17 depend on the full upload/list/download flow.
-
-Recommended implementation order:
-
-1. Issues 1-4
-2. Issues 5-7
-3. Issues 8-10
-4. Issues 11-13
-5. Issues 14-17
+1. #35 storage wrapper first, because upload, image content, and zip downloads all depend on S3 access.
+2. #36 service/repository boundaries next, so later splits have stable ownership.
+3. #37 module split after the boundaries are established.
+4. #38 and #39 frontend hook extractions can proceed after backend contracts remain stable.
+5. #40 API client error handling follows the hook extractions so callers share one error surface.
+6. #41 storage wrapper tests depend on #35.
+7. #42 zip/download failure tests depend on #37 and the storage wrapper.
+8. #43 E2E verification runs last to confirm the refactor batch preserved behavior.
 
 ## Key Design Decisions
 
-- Use a TypeScript monorepo so API contracts can be shared rather than duplicated.
-- Keep backend app composition separate from server startup so unit and integration tests can instantiate the Express app without binding a port.
-- Centralize environment parsing in the API and expose only explicitly safe frontend variables through Vite.
-- Store binary image content only in Object Storage; PostgreSQL stores metadata and Object Storage keys.
-- Generate storage keys server-side with UUIDs to avoid collisions and path traversal concerns.
-- Prefer cursor pagination over offset pagination for stable infinite scroll as uploads grow.
-- Stream uploads, storage downloads, and zip responses where practical to avoid loading large files into memory.
-- Normalize backend errors into stable codes so frontend upload and selection flows can show clear per-file or action-level feedback.
-- Keep zip creation behind a service boundary so Issue 14 can unit-test bundling with fake storage streams.
-- Track selected image IDs in frontend state derived from loaded pages; select-all should apply to the currently loaded gallery unless a later issue explicitly requires selecting every server-side result.
+- Preserve current public routes: `POST /api/images`, `GET /api/images`, `GET /api/images/:imageId/content`, and `POST /api/downloads/zip`.
+- Preserve PostgreSQL as the metadata store and Object Storage as the only binary store.
+- Keep Object Storage prefix isolation mandatory and unbypassable through the wrapper.
+- Keep production as one Express process serving `/api/*` and the built React app on `0.0.0.0:8080`.
+- Prefer dependency injection for services and repositories so tests can use fake storage streams and controlled database fixtures.
+- Avoid broad behavior changes in this batch; each issue should be a focused refactor or test addition with existing tests still passing.
