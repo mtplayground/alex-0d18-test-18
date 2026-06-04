@@ -38,6 +38,12 @@ export default tseslint.config(
     },
   },
   {
+    files: ["tests/**/*.ts"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  {
     files: ["apps/web/**/*.{ts,tsx}"],
     languageOptions: {
       globals: globals.browser,
