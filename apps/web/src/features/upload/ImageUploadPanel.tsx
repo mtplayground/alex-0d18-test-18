@@ -106,7 +106,11 @@ function messageClassName(tone: UploadMessage["tone"]): string {
   return "border-cyan-200 bg-cyan-50 text-cyan-800";
 }
 
-export function ImageUploadPanel() {
+interface ImageUploadPanelProps {
+  onUploadComplete?: () => void;
+}
+
+export function ImageUploadPanel({ onUploadComplete }: ImageUploadPanelProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const selectedImagesRef = useRef<SelectedImage[]>([]);
   const [selectedImages, setSelectedImages] = useState<SelectedImage[]>([]);
@@ -312,6 +316,9 @@ export function ImageUploadPanel() {
     );
 
     setMessage(summarizeUpload(uploadedCount, failedCount));
+    if (uploadedCount > 0) {
+      onUploadComplete?.();
+    }
     setIsSubmitting(false);
   }
 
