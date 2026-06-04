@@ -20,6 +20,7 @@
 - Backend unit tests for Object Storage wrapper prefix isolation and put/get/delete behavior.
 - Backend tests for zip/download failure paths, including storage read failures, missing objects, empty selections, and partial selections.
 - Playwright E2E test covering upload -> display -> select -> zip download, including image load and zip contents.
+- One-command post-layering verification via `npm run verify:layering`, which runs build, unit tests, and the upload/gallery/download E2E flow.
 - Self-hosted deployment path with one Express process serving both `/api/*` and the built React app.
 
 ## Architecture
@@ -28,7 +29,11 @@
 - `apps/web`: React, Vite, Tailwind frontend.
 - `apps/api`: Express API server in TypeScript.
 - `packages/shared`: shared TypeScript contracts.
-- Backend route modules delegate business logic to service modules and PostgreSQL access to repository modules.
+- Backend route modules act as controllers: they validate requests, call services, and map responses.
+- Services own business workflows and depend on repositories rather than direct database or Object Storage calls.
+- PostgreSQL metadata access lives behind `ImageMetadataRepository`; Object Storage access for image bytes lives behind `ImageObjectRepository`.
+- Shared domain/HTTP error classes live in `apps/api/src/errors`, and one central mapper preserves the existing HTTP status codes and response shapes.
+- Shared request-validation schemas live in `apps/api/src/validation` and are applied consistently to upload, list, image-content, and zip-download routes.
 - Upload, list, image-content, and zip download behavior is split into focused modules for validation, streaming, metadata lookup, and zip response assembly.
 - Object Storage access is centralized behind `ObjectStorageClient`; feature code does not call S3 SDK commands directly.
 - Frontend gallery pagination, selection, and download state live in dedicated hooks.
@@ -79,6 +84,7 @@ The server fails fast when required database or object-storage configuration is 
 - `npm run check`: typecheck, lint, and formatting check.
 - `npm run test`: backend unit tests.
 - `npm run test:e2e`: Playwright E2E flow.
+- `npm run verify:layering`: build, unit tests, and E2E verification after API layering changes.
 - `npm run build`: build all workspaces.
 - `npm start`: run the production Express server.
 
