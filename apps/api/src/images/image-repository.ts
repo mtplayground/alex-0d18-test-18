@@ -25,6 +25,12 @@ export interface ListImageRecordsInput {
   cursor?: ImageListCursor;
 }
 
+export interface ImageMetadataRepository {
+  create(input: CreateImageRecordInput): Promise<ImageRecord>;
+  findByIds(imageIds: string[]): Promise<ImageRecord[]>;
+  list(input: ListImageRecordsInput): Promise<ImageRecord[]>;
+}
+
 function mapImageRow(row: ImageRow): ImageRecord {
   return {
     id: row.id,
@@ -116,4 +122,18 @@ export async function findImageRecordsByIds(
   );
 
   return result.rows.map(mapImageRow);
+}
+
+export function createImageMetadataRepository(database: Pool): ImageMetadataRepository {
+  return {
+    async create(input) {
+      return await createImageRecord(database, input);
+    },
+    async findByIds(imageIds) {
+      return await findImageRecordsByIds(database, imageIds);
+    },
+    async list(input) {
+      return await listImageRecords(database, input);
+    },
+  };
 }

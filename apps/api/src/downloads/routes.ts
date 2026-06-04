@@ -1,20 +1,14 @@
 import { Router, type RequestHandler } from "express";
-import type { Pool } from "pg";
-import type { ObjectStorageClient } from "../storage/client.js";
+import type { ImageServiceDependencies } from "../images/image-service.js";
 import { prepareZipDownload } from "./download-service.js";
 import { streamZipDownloadResponse } from "./zip-response.js";
 
-interface DownloadsRouterDependencies {
-  database: Pool;
-  storage: ObjectStorageClient;
-}
-
-export function createDownloadsRouter(dependencies: DownloadsRouterDependencies): Router {
+export function createDownloadsRouter(serviceDependencies: ImageServiceDependencies): Router {
   const router = Router();
 
   const downloadZip: RequestHandler = async (request, response, next) => {
     try {
-      const zipDownload = await prepareZipDownload(dependencies, request.body);
+      const zipDownload = await prepareZipDownload(serviceDependencies, request.body);
       await streamZipDownloadResponse(response, zipDownload);
     } catch (error) {
       if (response.headersSent) {

@@ -1,9 +1,8 @@
 import { type Readable } from "node:stream";
-import type { Pool } from "pg";
 import sharp from "sharp";
 import { UploadStorageError, UploadValidationError } from "../errors/http-error.js";
-import type { ObjectStorageClient } from "../storage/client.js";
-import { createImageRecord } from "./image-repository.js";
+import type { ImageObjectRepository } from "./image-object-repository.js";
+import type { ImageMetadataRepository } from "./image-repository.js";
 import { ALLOWED_IMAGE_CONTENT_TYPES } from "./upload-constants.js";
 import { buildRelativeStorageKey, sanitizeFilename } from "./upload-filenames.js";
 import { drainStream, readUploadStream, type StreamedFile } from "./upload-stream.js";
@@ -14,8 +13,8 @@ import {
 } from "./upload-response.js";
 
 export interface UploadDependencies {
-  database: Pool;
-  storage: ObjectStorageClient;
+  metadataRepository: ImageMetadataRepository;
+  objectRepository: ImageObjectRepository;
 }
 
 export interface FileInfo {
@@ -25,12 +24,12 @@ export interface FileInfo {
 
 async function putFileToObjectStorage(
   file: StreamedFile,
-  storage: ObjectStorageClient,
+  objectRepository: ImageObjectRepository,
   relativeKey: string,
   contentType: string,
 ): Promise<void> {
   try {
-    await storage.putObject({
+    await objectRepository.put({
       relativeKey,
       body: file.buffer,
       contentLength: file.size,
@@ -46,12 +45,12 @@ async function putFileToObjectStorage(
 
 async function streamFileToObjectStorage(
   stream: Readable,
-  storage: ObjectStorageClient,
+  objectRepository: ImageObjectRepository,
   relativeKey: string,
   contentType: string,
 ): Promise<StreamedFile> {
   const streamedFile = await readUploadStream(stream);
-  await putFileToObjectStorage(streamedFile, storage, relativeKey, contentType);
+  await putFileToObjectStorage(streamedFile, objectRepository, relativeKey, contentType);
 
   return streamedFile;
 }
@@ -70,10 +69,10 @@ async function readImageDimensions(buffer: Buffer): Promise<{ width: number; hei
 }
 
 async function deleteUploadedObject(
-  storage: ObjectStorageClient,
+  objectRepository: ImageObjectRepository,
   relativeKey: string,
 ): Promise<void> {
-  await storage.deleteObject(relativeKey);
+  await objectRepository.delete(relativeKey);
 }
 
 export async function processImageFile(
@@ -96,7 +95,7 @@ export async function processImageFile(
   try {
     const streamedFile = await streamFileToObjectStorage(
       stream,
-      dependencies.storage,
+      dependencies.objectRepository,
       relativeKey,
       fileInfo.mimeType,
     );
@@ -107,7 +106,7 @@ export async function processImageFile(
     }
 
     const dimensions = await readImageDimensions(streamedFile.buffer);
-    const record = await createImageRecord(dependencies.database, {
+    const record = await dependencies.metadataRepository.create({
       filename,
       storageKey: relativeKey,
       contentType: fileInfo.mimeType,
@@ -119,7 +118,7 @@ export async function processImageFile(
   } catch (error) {
     if (uploadedObject) {
       try {
-        await deleteUploadedObject(dependencies.storage, relativeKey);
+        await deleteUploadedObject(dependencies.objectRepository, relativeKey);
       } catch {
         throw new UploadStorageError(
           "storage_cleanup_failed",
