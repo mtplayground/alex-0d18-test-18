@@ -5,7 +5,7 @@ import type { Pool } from "pg";
 import { createApp } from "../../apps/api/src/app.js";
 import type { ObjectStorageConfig } from "../../apps/api/src/config/storage.js";
 import type { ImageDimensions, ImageRecord } from "../../apps/api/src/images/image-record.js";
-import type { ObjectStorageClient } from "../../apps/api/src/storage/client.js";
+import { createObjectStorageClient } from "../../apps/api/src/storage/client.js";
 
 interface ImageRow {
   id: string;
@@ -130,12 +130,22 @@ class E2eS3Client {
         throw new Error("PutObjectCommand key must be a string");
       }
 
-      if (!(body instanceof Readable)) {
-        throw new Error("PutObjectCommand body must be a stream");
+      if (body instanceof Readable) {
+        this.objects.set(key, await streamToBuffer(body));
+        return {};
       }
 
-      this.objects.set(key, await streamToBuffer(body));
-      return {};
+      if (Buffer.isBuffer(body)) {
+        this.objects.set(key, body);
+        return {};
+      }
+
+      if (body instanceof Uint8Array) {
+        this.objects.set(key, Buffer.from(body));
+        return {};
+      }
+
+      throw new Error("PutObjectCommand body must be a buffer or stream");
     }
 
     if (name === "GetObjectCommand") {
@@ -171,10 +181,7 @@ class E2eS3Client {
 }
 
 const objects = new Map<string, Buffer>();
-const storage: ObjectStorageClient = {
-  config: STORAGE_CONFIG,
-  s3: new E2eS3Client(objects) as unknown as ObjectStorageClient["s3"],
-};
+const storage = createObjectStorageClient(STORAGE_CONFIG, new E2eS3Client(objects));
 const app = express();
 
 app.get("/__objects/*", (request, response) => {
