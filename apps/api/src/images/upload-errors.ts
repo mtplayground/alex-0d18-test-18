@@ -1,22 +1,5 @@
 import type { FailedImageUploadResponse } from "./upload-response.js";
-
-export class UploadValidationError extends Error {
-  public readonly code: string;
-
-  public constructor(code: string, message: string) {
-    super(message);
-    this.code = code;
-  }
-}
-
-export class UploadStorageError extends Error {
-  public readonly code: string;
-
-  public constructor(code: string, message: string) {
-    super(message);
-    this.code = code;
-  }
-}
+import { UploadFileError } from "../errors/http-error.js";
 
 export function failedUpload(
   filename: string,
@@ -33,11 +16,7 @@ export function failedUpload(
 }
 
 export function mapUploadError(filename: string, error: unknown): FailedImageUploadResponse {
-  if (error instanceof UploadValidationError) {
-    return failedUpload(filename, error.code, error.message);
-  }
-
-  if (error instanceof UploadStorageError) {
+  if (error instanceof UploadFileError) {
     return failedUpload(filename, error.code, error.message);
   }
 

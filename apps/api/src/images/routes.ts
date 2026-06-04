@@ -1,6 +1,6 @@
 import { Router, type RequestHandler } from "express";
 import type { Pool } from "pg";
-import { HttpError } from "../errors/http-error.js";
+import { RequestValidationError } from "../errors/http-error.js";
 import type { ObjectStorageClient } from "../storage/client.js";
 import {
   getImageContent as getImageContentFromService,
@@ -41,7 +41,7 @@ function readQueryString(value: unknown, name: string): string | undefined {
     return value[0];
   }
 
-  throw new HttpError(400, "invalid_query", `${name} must be a single string value`);
+  throw new RequestValidationError("invalid_query", `${name} must be a single string value`);
 }
 
 function parseLimit(value: unknown): number {
@@ -59,8 +59,7 @@ function parseLimit(value: unknown): number {
     limit < 1 ||
     limit > MAX_LIST_LIMIT
   ) {
-    throw new HttpError(
-      400,
+    throw new RequestValidationError(
       "invalid_limit",
       `limit must be an integer from 1 to ${MAX_LIST_LIMIT}`,
     );
@@ -77,7 +76,7 @@ export function createImagesRouter(dependencies: ImagesRouterDependencies): Rout
       const imageId = readImageIdFromRequest(request);
 
       if (typeof imageId !== "string" || !UUID_PATTERN.test(imageId)) {
-        throw new HttpError(400, "invalid_image_id", "Image ID must be a UUID");
+        throw new RequestValidationError("invalid_image_id", "Image ID must be a UUID");
       }
 
       const result = await getImageContentFromService(dependencies, imageId);

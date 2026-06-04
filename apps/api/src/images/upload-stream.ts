@@ -1,6 +1,6 @@
 import { type Readable } from "node:stream";
+import { UploadValidationError } from "../errors/http-error.js";
 import { MAX_IMAGE_SIZE_BYTES } from "./upload-constants.js";
-import { UploadValidationError } from "./upload-errors.js";
 
 export interface StreamedFile {
   buffer: Buffer;

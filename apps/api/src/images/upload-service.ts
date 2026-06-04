@@ -1,7 +1,7 @@
 import Busboy from "busboy";
 import { type Readable } from "node:stream";
 import type { IncomingHttpHeaders } from "node:http";
-import { HttpError } from "../errors/http-error.js";
+import { RequestValidationError, UnsupportedMediaTypeError } from "../errors/http-error.js";
 import { MAX_IMAGE_SIZE_BYTES, MAX_UPLOAD_FILES, UPLOAD_FIELD_NAMES } from "./upload-constants.js";
 import { failedUpload, mapUploadError } from "./upload-errors.js";
 import { sanitizeFilename } from "./upload-filenames.js";
@@ -21,8 +21,7 @@ export async function handleUploadRequest(
   const contentType = headers["content-type"];
 
   if (typeof contentType !== "string" || !contentType.includes("multipart/form-data")) {
-    throw new HttpError(
-      415,
+    throw new UnsupportedMediaTypeError(
       "unsupported_media_type",
       "Upload requests must be multipart/form-data",
     );
@@ -89,7 +88,9 @@ export async function handleUploadRequest(
       Promise.all(fileTasks)
         .then(() => {
           if (fileCount === 0) {
-            reject(new HttpError(400, "no_files", "Upload request did not include any files"));
+            reject(
+              new RequestValidationError("no_files", "Upload request did not include any files"),
+            );
             return;
           }
 
