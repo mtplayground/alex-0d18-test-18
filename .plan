@@ -1,0 +1,83 @@
+# Architecture Plan
+
+## Product Context
+
+The issues define an image upload and gallery workflow: users upload multiple images, browse them in a responsive paginated gallery, select images, and download the selection as a zip. No `PRODUCT.md` is present in the repository, so this plan avoids introducing a separate product brand/name.
+
+## Module Structure
+
+- `apps/web`: React + TypeScript frontend, Vite-based, styled with Tailwind.
+  - `src/app`: application shell, routing, layout, global state boundaries.
+  - `src/features/upload`: drag-and-drop multi-file upload, validation display, upload progress, per-file result states.
+  - `src/features/gallery`: paginated gallery grid, infinite scroll, thumbnail cards, selection state, select-all/clear actions.
+  - `src/features/download`: selected-image zip action and browser download handling.
+  - `src/lib/api`: typed API client, request helpers, error normalization.
+  - `src/types`: frontend-only view models where they differ from shared API contracts.
+- `apps/api`: Express + TypeScript backend.
+  - `src/server.ts`: server bootstrap and middleware setup.
+  - `src/app.ts`: Express app composition for tests and runtime.
+  - `src/config`: environment parsing and validation.
+  - `src/db`: PostgreSQL client/ORM setup and migrations.
+  - `src/storage`: S3-compatible Object Storage client and stream helpers.
+  - `src/images`: image routes, service logic, repository access, validation, DTO mapping.
+  - `src/downloads`: zip-stream creation and download route.
+  - `src/middleware`: error handling, request size limits, logging hooks.
+  - `src/test`: test fixtures and dependency fakes for DB/storage.
+- `packages/shared`: TypeScript contracts shared by frontend and backend.
+  - API request/response types for upload, list, and zip endpoints.
+  - Image metadata DTOs and common validation constants.
+  - Shared error codes used for predictable UI messaging.
+- `migrations`: database migrations if the selected DB tooling expects a root-level migration directory; otherwise keep migrations under `apps/api/src/db/migrations`.
+
+## API Shape
+
+- `POST /api/images`: multipart multi-file upload. Validates MIME type, size, and image dimensions where feasible; streams accepted files to Object Storage; stores metadata in PostgreSQL.
+- `GET /api/images?cursor=&limit=`: returns image metadata ordered by `uploaded_at DESC`, plus a URL suitable for thumbnail/display.
+- `POST /api/downloads/zip`: accepts image IDs and streams a generated zip response.
+- Health/config endpoints should stay minimal and deployment-oriented, added only if needed for Issue 17.
+
+## Data Model
+
+Primary table: `images`
+
+- `id`: stable identifier, preferably UUID.
+- `filename`: original display filename.
+- `storage_key`: Object Storage key, unique and not user-controlled.
+- `content_type`: validated image MIME type.
+- `size`: byte size.
+- `width`, `height`: dimensions, nullable only if extraction fails and validation allows that behavior.
+- `uploaded_at`: server timestamp, indexed for listing.
+
+Indexes:
+
+- `uploaded_at DESC, id DESC` for cursor pagination.
+- Unique index on `storage_key`.
+
+## Issue Dependencies
+
+- Foundation: Issues 1-4 establish monorepo, TypeScript/linting, PostgreSQL, Object Storage, and environment handling.
+- Upload path: Issues 5-7 depend on the backend storage/DB foundation and the frontend skeleton.
+- Gallery path: Issues 8-10 depend on uploaded image metadata and list endpoint contracts.
+- Download path: Issues 11-13 depend on gallery listing, selection state, and storage reads.
+- Quality/release: Issues 14-17 depend on the full upload/list/download flow.
+
+Recommended implementation order:
+
+1. Issues 1-4
+2. Issues 5-7
+3. Issues 8-10
+4. Issues 11-13
+5. Issues 14-17
+
+## Key Design Decisions
+
+- Use a TypeScript monorepo so API contracts can be shared rather than duplicated.
+- Keep backend app composition separate from server startup so unit and integration tests can instantiate the Express app without binding a port.
+- Centralize environment parsing in the API and expose only explicitly safe frontend variables through Vite.
+- Store binary image content only in Object Storage; PostgreSQL stores metadata and Object Storage keys.
+- Generate storage keys server-side with UUIDs to avoid collisions and path traversal concerns.
+- Prefer cursor pagination over offset pagination for stable infinite scroll as uploads grow.
+- Stream uploads, storage downloads, and zip responses where practical to avoid loading large files into memory.
+- Normalize backend errors into stable codes so frontend upload and selection flows can show clear per-file or action-level feedback.
+- Keep zip creation behind a service boundary so Issue 14 can unit-test bundling with fake storage streams.
+- Track selected image IDs in frontend state derived from loaded pages; select-all should apply to the currently loaded gallery unless a later issue explicitly requires selecting every server-side result.
