@@ -15,6 +15,11 @@ interface DownloadsRouterDependencies {
   storage: ObjectStorageClient;
 }
 
+interface ZipEntry {
+  name: string;
+  stream: Readable;
+}
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_ZIP_IMAGES = 100;
 
@@ -93,15 +98,23 @@ async function getImageObjectStream(
   storage: ObjectStorageClient,
   record: ImageRecord,
 ): Promise<Readable> {
-  const fullKey = toObjectStorageKey(storage.config, record.storageKey);
-  const result = await storage.s3.send(
-    new GetObjectCommand({
-      Bucket: storage.config.bucket,
-      Key: fullKey,
-    }),
-  );
+  try {
+    const fullKey = toObjectStorageKey(storage.config, record.storageKey);
+    const result = await storage.s3.send(
+      new GetObjectCommand({
+        Bucket: storage.config.bucket,
+        Key: fullKey,
+      }),
+    );
 
-  return toNodeReadable(result.Body);
+    return toNodeReadable(result.Body);
+  } catch {
+    throw new HttpError(
+      502,
+      "storage_unavailable",
+      "One or more selected images could not be read from object storage",
+    );
+  }
 }
 
 export function createDownloadsRouter(dependencies: DownloadsRouterDependencies): Router {
@@ -123,6 +136,14 @@ export function createDownloadsRouter(dependencies: DownloadsRouterDependencies)
         },
       });
       const usedNames = new Set<string>();
+      const zipEntries: ZipEntry[] = [];
+
+      for (const record of records) {
+        zipEntries.push({
+          name: uniqueZipEntryName(record, usedNames),
+          stream: await getImageObjectStream(dependencies.storage, record),
+        });
+      }
 
       archive.on("error", (error) => {
         response.destroy(error);
@@ -134,10 +155,9 @@ export function createDownloadsRouter(dependencies: DownloadsRouterDependencies)
 
       archive.pipe(response);
 
-      for (const record of records) {
-        const objectStream = await getImageObjectStream(dependencies.storage, record);
-        archive.append(objectStream, {
-          name: uniqueZipEntryName(record, usedNames),
+      for (const entry of zipEntries) {
+        archive.append(entry.stream, {
+          name: entry.name,
         });
       }
 

@@ -187,6 +187,7 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
   ]);
 
   const toggleImageSelection = useCallback((imageId: string) => {
+    setDownloadError(null);
     setSelectedImageIds((currentImageIds) => {
       const nextImageIds = new Set(currentImageIds);
 
@@ -201,6 +202,7 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
   }, []);
 
   const selectAllLoadedImages = useCallback(() => {
+    setDownloadError(null);
     setSelectedImageIds((currentImageIds) => {
       const nextImageIds = new Set(currentImageIds);
 
@@ -213,11 +215,17 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
   }, [loadedImageIds]);
 
   const clearSelection = useCallback(() => {
+    setDownloadError(null);
     setSelectedImageIds(new Set());
   }, []);
 
   const handleDownloadSelected = useCallback(async () => {
-    if (selectedLoadedImageIds.length === 0 || isDownloading) {
+    if (isDownloading) {
+      return;
+    }
+
+    if (selectedLoadedImageIds.length === 0) {
+      setDownloadError("Select at least one image from the current gallery before downloading.");
       return;
     }
 

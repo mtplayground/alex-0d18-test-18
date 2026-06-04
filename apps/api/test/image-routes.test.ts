@@ -32,6 +32,11 @@ interface RecordedStorageCommand {
   input: Record<string, unknown>;
 }
 
+interface FakeS3Options {
+  failPutObject?: boolean;
+  failGetObject?: boolean;
+}
+
 const STORAGE_CONFIG: ObjectStorageConfig = {
   accessKeyId: "test-access-key",
   secretAccessKey: "test-secret-key",
@@ -158,7 +163,10 @@ class FakeDatabase {
 class FakeS3Client {
   public readonly commands: RecordedStorageCommand[] = [];
 
-  public constructor(private readonly objects = new Map<string, Buffer>()) {}
+  public constructor(
+    private readonly objects = new Map<string, Buffer>(),
+    private readonly options: FakeS3Options = {},
+  ) {}
 
   public async send(command: unknown): Promise<unknown> {
     const name = command?.constructor.name ?? "UnknownCommand";
@@ -174,6 +182,10 @@ class FakeS3Client {
     });
 
     if (name === "PutObjectCommand") {
+      if (this.options.failPutObject === true) {
+        throw new Error("object storage put failed");
+      }
+
       if (input.Body instanceof Readable) {
         await streamToBuffer(input.Body);
       }
@@ -186,6 +198,10 @@ class FakeS3Client {
     }
 
     if (name === "GetObjectCommand") {
+      if (this.options.failGetObject === true) {
+        throw new Error("object storage get failed");
+      }
+
       const key = input.Key;
 
       if (typeof key !== "string") {
@@ -207,9 +223,13 @@ class FakeS3Client {
   }
 }
 
-function createTestDependencies(records: ImageRecord[] = [], objects = new Map<string, Buffer>()) {
+function createTestDependencies(
+  records: ImageRecord[] = [],
+  objects = new Map<string, Buffer>(),
+  s3Options: FakeS3Options = {},
+) {
   const database = new FakeDatabase(records);
-  const s3 = new FakeS3Client(objects);
+  const s3 = new FakeS3Client(objects, s3Options);
   const storage: ObjectStorageClient = {
     config: STORAGE_CONFIG,
     s3: s3 as unknown as ObjectStorageClient["s3"],
@@ -223,6 +243,19 @@ function createTestDependencies(records: ImageRecord[] = [], objects = new Map<s
     database,
     s3,
   };
+}
+
+async function createPngBuffer(): Promise<Buffer> {
+  return await sharp({
+    create: {
+      width: 2,
+      height: 3,
+      channels: 3,
+      background: "#0ea5e9",
+    },
+  })
+    .png()
+    .toBuffer();
 }
 
 function parseBinaryResponse(
@@ -269,16 +302,7 @@ describe("image API routes", () => {
 
   it("uploads valid images, persists metadata, and uses prefixed object keys", async () => {
     const { app, database, s3 } = createTestDependencies();
-    const imageBuffer = await sharp({
-      create: {
-        width: 2,
-        height: 3,
-        channels: 3,
-        background: "#0ea5e9",
-      },
-    })
-      .png()
-      .toBuffer();
+    const imageBuffer = await createPngBuffer();
 
     const response = await request(app)
       .post("/api/images")
@@ -321,6 +345,36 @@ describe("image API routes", () => {
       url: `https://cdn.example.test/test-prefix/${metadata.storageKey}`,
     });
     expect(response.body.failed).toEqual([]);
+  });
+
+  it("returns clear failed-file feedback when object storage upload fails", async () => {
+    const { app, database, s3 } = createTestDependencies([], new Map(), {
+      failPutObject: true,
+    });
+    const imageBuffer = await createPngBuffer();
+
+    const response = await request(app)
+      .post("/api/images")
+      .attach("files", imageBuffer, {
+        filename: "storage-failure.png",
+        contentType: "image/png",
+      })
+      .expect(400);
+
+    expect(response.body).toMatchObject({
+      uploaded: [],
+      failed: [
+        {
+          filename: "storage-failure.png",
+          error: {
+            code: "storage_upload_failed",
+            message: "Image could not be saved to object storage. Try again.",
+          },
+        },
+      ],
+    });
+    expect(database.insertedMetadata).toHaveLength(0);
+    expect(s3.commands[0]?.input.Key).toMatch(/^test-prefix\/uploads\//);
   });
 
   it("lists image metadata with public URLs and pagination", async () => {
@@ -378,6 +432,36 @@ describe("image API routes", () => {
       error: {
         code: "invalid_image_ids",
       },
+    });
+  });
+
+  it("returns a clear JSON error when selected zip objects cannot be read", async () => {
+    const records = [
+      makeRecord({
+        id: FIRST_IMAGE_ID,
+        filename: "missing.png",
+        storageKey: "uploads/missing.png",
+      }),
+    ];
+    const { app, s3 } = createTestDependencies(records, new Map(), {
+      failGetObject: true,
+    });
+
+    const response = await request(app)
+      .post("/api/downloads/zip")
+      .send({ imageIds: [FIRST_IMAGE_ID] })
+      .expect(502);
+
+    expect(response.body).toMatchObject({
+      error: {
+        code: "storage_unavailable",
+        message: "One or more selected images could not be read from object storage",
+      },
+    });
+    expect(response.headers["content-type"]).toContain("application/json");
+    expect(s3.commands[0]?.input).toMatchObject({
+      Bucket: STORAGE_CONFIG.bucket,
+      Key: `${STORAGE_CONFIG.prefix}uploads/missing.png`,
     });
   });
 
