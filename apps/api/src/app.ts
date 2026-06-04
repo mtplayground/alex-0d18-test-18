@@ -2,6 +2,7 @@ import type { HealthResponse } from "@alex-0d18-test-18/shared";
 import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import helmet from "helmet";
+import path from "node:path";
 import type { Pool } from "pg";
 import { createDownloadsRouter } from "./downloads/routes.js";
 import { HttpError } from "./errors/http-error.js";
@@ -10,6 +11,7 @@ import type { ObjectStorageClient } from "./storage/client.js";
 
 export interface AppDependencies {
   database?: Pool;
+  staticAssetsPath?: string;
   storage?: ObjectStorageClient;
 }
 
@@ -52,6 +54,28 @@ export function createApp(dependencies: AppDependencies = {}) {
         storage: dependencies.storage,
       }),
     );
+  }
+
+  app.use("/api", (_request, response) => {
+    response.status(404).json({
+      error: {
+        code: "not_found",
+        message: "API route not found",
+      },
+    });
+  });
+
+  const staticAssetsPath = dependencies.staticAssetsPath;
+
+  if (staticAssetsPath !== undefined) {
+    app.use(express.static(staticAssetsPath, { index: false }));
+    app.get("*", (_request, response, next) => {
+      response.sendFile(path.join(staticAssetsPath, "index.html"), (error) => {
+        if (error !== undefined) {
+          next(error);
+        }
+      });
+    });
   }
 
   app.use((_request, response) => {
