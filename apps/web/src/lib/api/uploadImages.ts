@@ -1,3 +1,5 @@
+import { apiErrorFromBody, parseApiResponseText } from "./client";
+
 export interface UploadedImageResponse {
   id: string;
   filename: string;
@@ -43,14 +45,6 @@ function isUploadImagesResponse(body: unknown): body is UploadImagesResponse {
   return "uploaded" in body && "failed" in body;
 }
 
-function parseUploadResponse(responseText: string): unknown {
-  if (responseText.trim() === "") {
-    return {};
-  }
-
-  return JSON.parse(responseText) as unknown;
-}
-
 export async function uploadImages(
   files: File[],
   options: UploadImagesOptions = {},
@@ -81,7 +75,7 @@ export async function uploadImages(
 
     request.onload = () => {
       try {
-        const body = parseUploadResponse(request.responseText);
+        const body = parseApiResponseText(request.responseText);
 
         if (isUploadImagesResponse(body)) {
           resolve(body);
@@ -93,18 +87,7 @@ export async function uploadImages(
           return;
         }
 
-        const message =
-          body !== null &&
-          typeof body === "object" &&
-          "error" in body &&
-          typeof body.error === "object" &&
-          body.error !== null &&
-          "message" in body.error &&
-          typeof body.error.message === "string"
-            ? body.error.message
-            : "Upload failed";
-
-        reject(new Error(message));
+        reject(apiErrorFromBody(body, "Upload failed"));
       } catch (error) {
         reject(error instanceof Error ? error : new Error("Upload failed"));
       }

@@ -1,4 +1,5 @@
 import type { UploadedImageResponse } from "./uploadImages";
+import { requestJson } from "./client";
 
 export interface ListImagesResponse {
   images: UploadedImageResponse[];
@@ -27,18 +28,11 @@ export async function listImages(options: ListImagesOptions = {}): Promise<ListI
   }
 
   const query = searchParams.size > 0 ? `?${searchParams.toString()}` : "";
-  const response = await fetch(`/api/images${query}`, {
-    signal: options.signal,
-  });
-  const body = (await response.json()) as ListImagesResponse | { error?: { message?: string } };
-
-  if (!response.ok) {
-    throw new Error(
-      "error" in body
-        ? (body.error?.message ?? "Images could not be loaded")
-        : "Images could not be loaded",
-    );
-  }
-
-  return body as ListImagesResponse;
+  return await requestJson<ListImagesResponse>(
+    `/api/images${query}`,
+    {
+      signal: options.signal,
+    },
+    "Images could not be loaded",
+  );
 }
