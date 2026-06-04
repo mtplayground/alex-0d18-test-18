@@ -3,9 +3,11 @@ import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import helmet from "helmet";
 import type { Pool } from "pg";
+import type { ObjectStorageClient } from "./storage/client.js";
 
 export interface AppDependencies {
   database?: Pool;
+  storage?: ObjectStorageClient;
 }
 
 export function createApp(dependencies: AppDependencies = {}) {
@@ -13,6 +15,10 @@ export function createApp(dependencies: AppDependencies = {}) {
 
   if (dependencies.database !== undefined) {
     app.locals.database = dependencies.database;
+  }
+
+  if (dependencies.storage !== undefined) {
+    app.locals.storage = dependencies.storage;
   }
 
   app.use(helmet());
