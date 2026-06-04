@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listImages } from "../../lib/api/listImages";
 import type { UploadedImageResponse } from "../../lib/api/uploadImages";
 
@@ -9,14 +9,22 @@ interface GalleryGridProps {
 interface GalleryState {
   images: UploadedImageResponse[];
   isLoading: boolean;
+  isLoadingMore: boolean;
   error: string | null;
+  nextCursor: string | null;
+  hasMore: boolean;
 }
 
 const INITIAL_GALLERY_STATE: GalleryState = {
   images: [],
   isLoading: true,
+  isLoadingMore: false,
   error: null,
+  nextCursor: null,
+  hasMore: false,
 };
+
+const PAGE_SIZE = 30;
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) {
@@ -38,18 +46,22 @@ function formatDate(value: string): string {
 }
 
 export function GalleryGrid({ refreshKey }: GalleryGridProps) {
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [manualRefreshKey, setManualRefreshKey] = useState(0);
   const [galleryState, setGalleryState] = useState<GalleryState>(INITIAL_GALLERY_STATE);
 
   useEffect(() => {
     const abortController = new AbortController();
 
-    listImages({ limit: 30, signal: abortController.signal })
+    listImages({ limit: PAGE_SIZE, signal: abortController.signal })
       .then((result) => {
         setGalleryState({
           images: result.images,
           isLoading: false,
+          isLoadingMore: false,
           error: null,
+          nextCursor: result.page.nextCursor,
+          hasMore: result.page.hasMore,
         });
       })
       .catch((error: unknown) => {
@@ -60,7 +72,10 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
         setGalleryState({
           images: [],
           isLoading: false,
+          isLoadingMore: false,
           error: error instanceof Error ? error.message : "Images could not be loaded",
+          nextCursor: null,
+          hasMore: false,
         });
       });
 
@@ -68,6 +83,91 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
       abortController.abort();
     };
   }, [refreshKey, manualRefreshKey]);
+
+  const loadNextPage = useCallback(async () => {
+    if (
+      galleryState.nextCursor === null ||
+      !galleryState.hasMore ||
+      galleryState.isLoading ||
+      galleryState.isLoadingMore
+    ) {
+      return;
+    }
+
+    const cursor = galleryState.nextCursor;
+
+    setGalleryState((currentState) => ({
+      ...currentState,
+      isLoadingMore: true,
+      error: null,
+    }));
+
+    try {
+      const result = await listImages({ limit: PAGE_SIZE, cursor });
+
+      setGalleryState((currentState) => {
+        const existingIds = new Set(currentState.images.map((image) => image.id));
+        const nextImages = result.images.filter((image) => !existingIds.has(image.id));
+
+        return {
+          ...currentState,
+          images: [...currentState.images, ...nextImages],
+          isLoadingMore: false,
+          error: null,
+          nextCursor: result.page.nextCursor,
+          hasMore: result.page.hasMore,
+        };
+      });
+    } catch (error) {
+      setGalleryState((currentState) => ({
+        ...currentState,
+        isLoadingMore: false,
+        error: error instanceof Error ? error.message : "Images could not be loaded",
+      }));
+    }
+  }, [
+    galleryState.hasMore,
+    galleryState.isLoading,
+    galleryState.isLoadingMore,
+    galleryState.nextCursor,
+  ]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+
+    if (
+      sentinel === null ||
+      !galleryState.hasMore ||
+      galleryState.nextCursor === null ||
+      galleryState.isLoading ||
+      galleryState.isLoadingMore
+    ) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void loadNextPage();
+        }
+      },
+      {
+        rootMargin: "600px 0px",
+      },
+    );
+
+    observer.observe(sentinel);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [
+    galleryState.hasMore,
+    galleryState.isLoading,
+    galleryState.isLoadingMore,
+    galleryState.nextCursor,
+    loadNextPage,
+  ]);
 
   return (
     <section className="mx-auto w-full max-w-6xl px-5 pb-12 sm:px-8 lg:px-10">
@@ -86,7 +186,10 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
             setGalleryState((currentState) => ({
               ...currentState,
               isLoading: true,
+              isLoadingMore: false,
               error: null,
+              nextCursor: null,
+              hasMore: false,
             }));
             setManualRefreshKey((value) => value + 1);
           }}
@@ -128,7 +231,13 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
               className="overflow-hidden rounded border border-slate-200 bg-white"
             >
               <div className="aspect-square bg-slate-100">
-                <img className="h-full w-full object-cover" src={image.url} alt={image.filename} />
+                <img
+                  className="h-full w-full object-cover"
+                  decoding="async"
+                  loading="lazy"
+                  src={image.url}
+                  alt={image.filename}
+                />
               </div>
               <div className="space-y-2 p-3">
                 <p className="truncate text-sm font-medium text-slate-950" title={image.filename}>
@@ -144,6 +253,17 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
               </div>
             </article>
           ))}
+        </div>
+      ) : null}
+
+      {!galleryState.isLoading && galleryState.images.length > 0 ? (
+        <div ref={sentinelRef} className="mt-6 flex min-h-12 items-center justify-center">
+          {galleryState.isLoadingMore ? (
+            <span className="text-sm text-slate-500">Loading more images</span>
+          ) : null}
+          {!galleryState.isLoadingMore && !galleryState.hasMore ? (
+            <span className="text-sm text-slate-500">End of gallery</span>
+          ) : null}
         </div>
       ) : null}
     </section>
