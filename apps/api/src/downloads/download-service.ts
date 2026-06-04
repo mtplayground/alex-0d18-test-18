@@ -4,8 +4,8 @@ import { NotFoundError, UpstreamStorageError } from "../errors/http-error.js";
 import { findImageRecordsByIds } from "../images/image-repository.js";
 import type { ImageRecord } from "../images/image-record.js";
 import type { ObjectStorageClient } from "../storage/client.js";
+import { parseZipImageIds } from "../validation/request-schemas.js";
 import { uniqueZipEntryName } from "./zip-entry-names.js";
-import { parseImageIds } from "./zip-request.js";
 
 interface DownloadServiceDependencies {
   database: Pool;
@@ -42,7 +42,7 @@ export async function prepareZipDownload(
   dependencies: DownloadServiceDependencies,
   body: unknown,
 ): Promise<ZipDownload> {
-  const imageIds = parseImageIds(body);
+  const imageIds = parseZipImageIds(body);
   const records = await findImageRecordsByIds(dependencies.database, imageIds);
 
   if (records.length !== imageIds.length) {

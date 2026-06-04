@@ -1,8 +1,12 @@
 import Busboy from "busboy";
 import { type Readable } from "node:stream";
 import type { IncomingHttpHeaders } from "node:http";
-import { RequestValidationError, UnsupportedMediaTypeError } from "../errors/http-error.js";
 import { MAX_IMAGE_SIZE_BYTES, MAX_UPLOAD_FILES, UPLOAD_FIELD_NAMES } from "./upload-constants.js";
+import {
+  tooManyUploadFilesFailure,
+  validateUploadFileCount,
+  validateUploadHeaders,
+} from "../validation/request-schemas.js";
 import { failedUpload, mapUploadError } from "./upload-errors.js";
 import { sanitizeFilename } from "./upload-filenames.js";
 import { processImageFile, type UploadDependencies } from "./upload-image-processor.js";
@@ -18,14 +22,7 @@ export async function handleUploadRequest(
   request: Readable,
   dependencies: UploadDependencies,
 ): Promise<UploadImagesResponse> {
-  const contentType = headers["content-type"];
-
-  if (typeof contentType !== "string" || !contentType.includes("multipart/form-data")) {
-    throw new UnsupportedMediaTypeError(
-      "unsupported_media_type",
-      "Upload requests must be multipart/form-data",
-    );
-  }
+  validateUploadHeaders(headers);
 
   const uploaded: UploadedImageResponse[] = [];
   const failed: FailedImageUploadResponse[] = [];
@@ -73,13 +70,7 @@ export async function handleUploadRequest(
     });
 
     parser.once("filesLimit", () => {
-      failed.push(
-        failedUpload(
-          "",
-          "too_many_files",
-          `Upload requests can include at most ${MAX_UPLOAD_FILES} files`,
-        ),
-      );
+      failed.push(tooManyUploadFilesFailure());
     });
 
     parser.once("error", reject);
@@ -87,12 +78,7 @@ export async function handleUploadRequest(
     parser.once("finish", () => {
       Promise.all(fileTasks)
         .then(() => {
-          if (fileCount === 0) {
-            reject(
-              new RequestValidationError("no_files", "Upload request did not include any files"),
-            );
-            return;
-          }
+          validateUploadFileCount(fileCount);
 
           resolve();
         })
