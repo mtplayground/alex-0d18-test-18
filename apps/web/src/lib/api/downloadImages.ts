@@ -1,3 +1,5 @@
+import { apiErrorFromResponse } from "./client";
+
 interface DownloadImagesAsZipOptions {
   imageIds: string[];
   signal?: AbortSignal;
@@ -9,32 +11,6 @@ interface DownloadImagesAsZipResponse {
 }
 
 const DEFAULT_ZIP_FILENAME = "images.zip";
-
-function parseErrorMessage(body: unknown): string {
-  if (
-    body !== null &&
-    typeof body === "object" &&
-    "error" in body &&
-    typeof body.error === "object" &&
-    body.error !== null &&
-    "message" in body.error &&
-    typeof body.error.message === "string"
-  ) {
-    return body.error.message;
-  }
-
-  return "Selected images could not be downloaded";
-}
-
-async function parseResponseBody(response: Response): Promise<unknown> {
-  const contentType = response.headers.get("content-type") ?? "";
-
-  if (contentType.includes("application/json")) {
-    return (await response.json()) as unknown;
-  }
-
-  return await response.text();
-}
 
 function parseContentDispositionFilename(value: string | null): string {
   if (value === null) {
@@ -72,7 +48,7 @@ export async function downloadImagesAsZip({
   });
 
   if (!response.ok) {
-    throw new Error(parseErrorMessage(await parseResponseBody(response)));
+    throw await apiErrorFromResponse(response, "Selected images could not be downloaded");
   }
 
   const blob = await response.blob();
