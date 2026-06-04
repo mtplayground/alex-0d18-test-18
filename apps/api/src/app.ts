@@ -3,6 +3,8 @@ import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import helmet from "helmet";
 import type { Pool } from "pg";
+import { HttpError } from "./errors/http-error.js";
+import { createImagesRouter } from "./images/routes.js";
 import type { ObjectStorageClient } from "./storage/client.js";
 
 export interface AppDependencies {
@@ -34,6 +36,16 @@ export function createApp(dependencies: AppDependencies = {}) {
     response.json(body);
   });
 
+  if (dependencies.database !== undefined && dependencies.storage !== undefined) {
+    app.use(
+      "/api/images",
+      createImagesRouter({
+        database: dependencies.database,
+        storage: dependencies.storage,
+      }),
+    );
+  }
+
   app.use((_request, response) => {
     response.status(404).json({
       error: {
@@ -44,6 +56,16 @@ export function createApp(dependencies: AppDependencies = {}) {
   });
 
   const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => {
+    if (error instanceof HttpError) {
+      response.status(error.statusCode).json({
+        error: {
+          code: error.code,
+          message: error.message,
+        },
+      });
+      return;
+    }
+
     const message = error instanceof Error ? error.message : "Unexpected server error";
 
     response.status(500).json({
