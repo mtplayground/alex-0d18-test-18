@@ -96,3 +96,24 @@ export async function listImageRecords(
 
   return result.rows.map(mapImageRow);
 }
+
+export async function findImageRecordsByIds(
+  database: Pool,
+  imageIds: string[],
+): Promise<ImageRecord[]> {
+  if (imageIds.length === 0) {
+    return [];
+  }
+
+  const result = await database.query<ImageRow>(
+    `
+      SELECT id, filename, storage_key, content_type, size, dimensions, uploaded_at
+      FROM images
+      WHERE id = ANY($1::uuid[])
+      ORDER BY array_position($1::uuid[], id)
+    `,
+    [imageIds],
+  );
+
+  return result.rows.map(mapImageRow);
+}
