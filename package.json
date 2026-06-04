@@ -10,6 +10,7 @@
     "dev": "concurrently \"npm:dev --workspace apps/api\" \"npm:dev --workspace apps/web\"",
     "build": "npm run build --workspaces",
     "db:migrate": "npm run db:migrate --workspace apps/api",
+    "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces",
     "lint": "eslint .",
     "format": "prettier --write .",
