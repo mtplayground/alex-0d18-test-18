@@ -5,6 +5,7 @@ dist/
 .claude/
 .database_url
 .db_decision
+.env
 .env.production
 .storage_decision
 .task_id
