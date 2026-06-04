@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": ["node"],
+    "isolatedModules": false,
+    "noEmit": false,
+    "declaration": true,
+    "sourceMap": true
+  },
+  "include": ["src/**/*.ts"]
+}
