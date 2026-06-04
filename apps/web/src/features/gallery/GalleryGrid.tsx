@@ -1,31 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { downloadImagesAsZip } from "../../lib/api/downloadImages";
-import { listImages } from "../../lib/api/listImages";
-import type { UploadedImageResponse } from "../../lib/api/uploadImages";
+import { useMemo } from "react";
+import { useGalleryDownload } from "./useGalleryDownload";
+import { useGalleryImages } from "./useGalleryImages";
+import { useGallerySelection } from "./useGallerySelection";
 
 interface GalleryGridProps {
   refreshKey: number;
 }
-
-interface GalleryState {
-  images: UploadedImageResponse[];
-  isLoading: boolean;
-  isLoadingMore: boolean;
-  error: string | null;
-  nextCursor: string | null;
-  hasMore: boolean;
-}
-
-const INITIAL_GALLERY_STATE: GalleryState = {
-  images: [],
-  isLoading: true,
-  isLoadingMore: false,
-  error: null,
-  nextCursor: null,
-  hasMore: false,
-};
-
-const PAGE_SIZE = 30;
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) {
@@ -47,213 +27,24 @@ function formatDate(value: string): string {
 }
 
 export function GalleryGrid({ refreshKey }: GalleryGridProps) {
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const [manualRefreshKey, setManualRefreshKey] = useState(0);
-  const [galleryState, setGalleryState] = useState<GalleryState>(INITIAL_GALLERY_STATE);
-  const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(() => new Set());
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const { galleryState, refreshGallery, sentinelRef } = useGalleryImages(refreshKey);
+  const { clearDownloadError, downloadError, downloadSelectedImages, isDownloading } =
+    useGalleryDownload();
 
   const loadedImageIds = useMemo(
     () => galleryState.images.map((image) => image.id),
     [galleryState.images],
   );
-  const selectedLoadedImageIds = useMemo(
-    () => loadedImageIds.filter((imageId) => selectedImageIds.has(imageId)),
-    [loadedImageIds, selectedImageIds],
-  );
-  const selectedCount = selectedLoadedImageIds.length;
-  const hasLoadedImages = loadedImageIds.length > 0;
-  const areAllLoadedImagesSelected =
-    hasLoadedImages && selectedLoadedImageIds.length === loadedImageIds.length;
-
-  useEffect(() => {
-    const abortController = new AbortController();
-
-    listImages({ limit: PAGE_SIZE, signal: abortController.signal })
-      .then((result) => {
-        setGalleryState({
-          images: result.images,
-          isLoading: false,
-          isLoadingMore: false,
-          error: null,
-          nextCursor: result.page.nextCursor,
-          hasMore: result.page.hasMore,
-        });
-      })
-      .catch((error: unknown) => {
-        if (abortController.signal.aborted) {
-          return;
-        }
-
-        setGalleryState({
-          images: [],
-          isLoading: false,
-          isLoadingMore: false,
-          error: error instanceof Error ? error.message : "Images could not be loaded",
-          nextCursor: null,
-          hasMore: false,
-        });
-      });
-
-    return () => {
-      abortController.abort();
-    };
-  }, [refreshKey, manualRefreshKey]);
-
-  const loadNextPage = useCallback(async () => {
-    if (
-      galleryState.nextCursor === null ||
-      !galleryState.hasMore ||
-      galleryState.isLoading ||
-      galleryState.isLoadingMore
-    ) {
-      return;
-    }
-
-    const cursor = galleryState.nextCursor;
-
-    setGalleryState((currentState) => ({
-      ...currentState,
-      isLoadingMore: true,
-      error: null,
-    }));
-
-    try {
-      const result = await listImages({ limit: PAGE_SIZE, cursor });
-
-      setGalleryState((currentState) => {
-        const existingIds = new Set(currentState.images.map((image) => image.id));
-        const nextImages = result.images.filter((image) => !existingIds.has(image.id));
-
-        return {
-          ...currentState,
-          images: [...currentState.images, ...nextImages],
-          isLoadingMore: false,
-          error: null,
-          nextCursor: result.page.nextCursor,
-          hasMore: result.page.hasMore,
-        };
-      });
-    } catch (error) {
-      setGalleryState((currentState) => ({
-        ...currentState,
-        isLoadingMore: false,
-        error: error instanceof Error ? error.message : "Images could not be loaded",
-      }));
-    }
-  }, [
-    galleryState.hasMore,
-    galleryState.isLoading,
-    galleryState.isLoadingMore,
-    galleryState.nextCursor,
-  ]);
-
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-
-    if (
-      sentinel === null ||
-      !galleryState.hasMore ||
-      galleryState.nextCursor === null ||
-      galleryState.isLoading ||
-      galleryState.isLoadingMore
-    ) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          void loadNextPage();
-        }
-      },
-      {
-        rootMargin: "600px 0px",
-      },
-    );
-
-    observer.observe(sentinel);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [
-    galleryState.hasMore,
-    galleryState.isLoading,
-    galleryState.isLoadingMore,
-    galleryState.nextCursor,
-    loadNextPage,
-  ]);
-
-  const toggleImageSelection = useCallback((imageId: string) => {
-    setDownloadError(null);
-    setSelectedImageIds((currentImageIds) => {
-      const nextImageIds = new Set(currentImageIds);
-
-      if (nextImageIds.has(imageId)) {
-        nextImageIds.delete(imageId);
-      } else {
-        nextImageIds.add(imageId);
-      }
-
-      return nextImageIds;
-    });
-  }, []);
-
-  const selectAllLoadedImages = useCallback(() => {
-    setDownloadError(null);
-    setSelectedImageIds((currentImageIds) => {
-      const nextImageIds = new Set(currentImageIds);
-
-      for (const imageId of loadedImageIds) {
-        nextImageIds.add(imageId);
-      }
-
-      return nextImageIds;
-    });
-  }, [loadedImageIds]);
-
-  const clearSelection = useCallback(() => {
-    setDownloadError(null);
-    setSelectedImageIds(new Set());
-  }, []);
-
-  const handleDownloadSelected = useCallback(async () => {
-    if (isDownloading) {
-      return;
-    }
-
-    if (selectedLoadedImageIds.length === 0) {
-      setDownloadError("Select at least one image from the current gallery before downloading.");
-      return;
-    }
-
-    setIsDownloading(true);
-    setDownloadError(null);
-
-    try {
-      const { blob, filename } = await downloadImagesAsZip({
-        imageIds: selectedLoadedImageIds,
-      });
-      const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-
-      link.href = objectUrl;
-      link.download = filename;
-      link.rel = "noopener";
-      document.body.append(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(objectUrl);
-    } catch (error) {
-      setDownloadError(
-        error instanceof Error ? error.message : "Selected images could not be downloaded",
-      );
-    } finally {
-      setIsDownloading(false);
-    }
-  }, [isDownloading, selectedLoadedImageIds]);
+  const {
+    areAllLoadedImagesSelected,
+    clearSelection,
+    hasLoadedImages,
+    selectedCount,
+    selectedImageIds,
+    selectedLoadedImageIds,
+    selectAllLoadedImages,
+    toggleImageSelection,
+  } = useGallerySelection(loadedImageIds, clearDownloadError);
 
   return (
     <section className="mx-auto w-full max-w-6xl px-5 pb-12 sm:px-8 lg:px-10">
@@ -290,7 +81,7 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
               type="button"
               disabled={selectedCount === 0 || isDownloading}
               onClick={() => {
-                void handleDownloadSelected();
+                void downloadSelectedImages(selectedLoadedImageIds);
               }}
             >
               {isDownloading ? "Downloading..." : "Download selected as zip"}
@@ -299,17 +90,7 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
               className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
               type="button"
               disabled={galleryState.isLoading}
-              onClick={() => {
-                setGalleryState((currentState) => ({
-                  ...currentState,
-                  isLoading: true,
-                  isLoadingMore: false,
-                  error: null,
-                  nextCursor: null,
-                  hasMore: false,
-                }));
-                setManualRefreshKey((value) => value + 1);
-              }}
+              onClick={refreshGallery}
             >
               Refresh
             </button>
