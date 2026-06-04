@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import type { ImageDimensions, ImageRecord } from "./image-record.js";
+import type { ImageListCursor } from "./pagination.js";
 
 interface ImageRow {
   id: string;
@@ -17,6 +18,11 @@ export interface CreateImageRecordInput {
   contentType: string;
   size: number;
   dimensions: ImageDimensions;
+}
+
+export interface ListImageRecordsInput {
+  limit: number;
+  cursor?: ImageListCursor;
 }
 
 function mapImageRow(row: ImageRow): ImageRecord {
@@ -57,4 +63,36 @@ export async function createImageRecord(
   }
 
   return mapImageRow(row);
+}
+
+export async function listImageRecords(
+  database: Pool,
+  input: ListImageRecordsInput,
+): Promise<ImageRecord[]> {
+  if (input.cursor === undefined) {
+    const result = await database.query<ImageRow>(
+      `
+        SELECT id, filename, storage_key, content_type, size, dimensions, uploaded_at
+        FROM images
+        ORDER BY uploaded_at DESC, id DESC
+        LIMIT $1
+      `,
+      [input.limit],
+    );
+
+    return result.rows.map(mapImageRow);
+  }
+
+  const result = await database.query<ImageRow>(
+    `
+      SELECT id, filename, storage_key, content_type, size, dimensions, uploaded_at
+      FROM images
+      WHERE (uploaded_at, id) < ($1::timestamptz, $2::uuid)
+      ORDER BY uploaded_at DESC, id DESC
+      LIMIT $3
+    `,
+    [input.cursor.uploadedAt.toISOString(), input.cursor.id, input.limit],
+  );
+
+  return result.rows.map(mapImageRow);
 }
