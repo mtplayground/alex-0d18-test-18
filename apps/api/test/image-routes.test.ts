@@ -432,6 +432,30 @@ describe("image API routes", () => {
     });
   });
 
+  it("returns not found when selected zip metadata is partially missing", async () => {
+    const records = [
+      makeRecord({
+        id: FIRST_IMAGE_ID,
+        filename: "found.png",
+        storageKey: "uploads/found.png",
+      }),
+    ];
+    const { app, s3 } = createTestDependencies(records);
+
+    const response = await request(app)
+      .post("/api/downloads/zip")
+      .send({ imageIds: [FIRST_IMAGE_ID, SECOND_IMAGE_ID] })
+      .expect(404);
+
+    expect(response.body).toMatchObject({
+      error: {
+        code: "images_not_found",
+        message: "One or more images could not be found",
+      },
+    });
+    expect(s3.commands).toHaveLength(0);
+  });
+
   it("returns a clear JSON error when selected zip objects cannot be read", async () => {
     const records = [
       makeRecord({
@@ -459,6 +483,34 @@ describe("image API routes", () => {
     expect(s3.commands[0]?.input).toMatchObject({
       Bucket: STORAGE_CONFIG.bucket,
       Key: `${STORAGE_CONFIG.prefix}uploads/missing.png`,
+    });
+  });
+
+  it("returns a clear JSON error when selected zip objects are missing from storage", async () => {
+    const records = [
+      makeRecord({
+        id: FIRST_IMAGE_ID,
+        filename: "missing-object.png",
+        storageKey: "uploads/missing-object.png",
+      }),
+    ];
+    const { app, s3 } = createTestDependencies(records);
+
+    const response = await request(app)
+      .post("/api/downloads/zip")
+      .send({ imageIds: [FIRST_IMAGE_ID] })
+      .expect(502);
+
+    expect(response.body).toMatchObject({
+      error: {
+        code: "storage_unavailable",
+        message: "One or more selected images could not be read from object storage",
+      },
+    });
+    expect(response.headers["content-type"]).toContain("application/json");
+    expect(s3.commands[0]?.input).toMatchObject({
+      Bucket: STORAGE_CONFIG.bucket,
+      Key: `${STORAGE_CONFIG.prefix}uploads/missing-object.png`,
     });
   });
 
