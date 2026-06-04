@@ -1,71 +1,16 @@
 import { Router, type RequestHandler } from "express";
 import type { Pool } from "pg";
-import { RequestValidationError } from "../errors/http-error.js";
 import type { ObjectStorageClient } from "../storage/client.js";
+import { parseImageContentRequest, parseImageListQuery } from "../validation/request-schemas.js";
 import {
   getImageContent as getImageContentFromService,
   listGalleryImages,
   uploadImages as uploadImagesWithService,
 } from "./image-service.js";
-import { decodeImageListCursor } from "./pagination.js";
 
 interface ImagesRouterDependencies {
   database: Pool;
   storage: ObjectStorageClient;
-}
-
-const DEFAULT_LIST_LIMIT = 30;
-const MAX_LIST_LIMIT = 100;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function readImageIdFromRequest(request: Parameters<RequestHandler>[0]): string | undefined {
-  const imageId = request.params.imageId;
-
-  if (typeof imageId === "string") {
-    return imageId.split("/")[0];
-  }
-
-  return /^\/([^/]+)(?:\/content)?$/.exec(request.path)?.[1];
-}
-
-function readQueryString(value: unknown, name: string): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (Array.isArray(value) && value.length === 1 && typeof value[0] === "string") {
-    return value[0];
-  }
-
-  throw new RequestValidationError("invalid_query", `${name} must be a single string value`);
-}
-
-function parseLimit(value: unknown): number {
-  const rawLimit = readQueryString(value, "limit");
-
-  if (rawLimit === undefined) {
-    return DEFAULT_LIST_LIMIT;
-  }
-
-  const limit = Number.parseInt(rawLimit, 10);
-
-  if (
-    !Number.isInteger(limit) ||
-    String(limit) !== rawLimit ||
-    limit < 1 ||
-    limit > MAX_LIST_LIMIT
-  ) {
-    throw new RequestValidationError(
-      "invalid_limit",
-      `limit must be an integer from 1 to ${MAX_LIST_LIMIT}`,
-    );
-  }
-
-  return limit;
 }
 
 export function createImagesRouter(dependencies: ImagesRouterDependencies): Router {
@@ -73,12 +18,7 @@ export function createImagesRouter(dependencies: ImagesRouterDependencies): Rout
 
   const getImageContent: RequestHandler = async (request, response, next) => {
     try {
-      const imageId = readImageIdFromRequest(request);
-
-      if (typeof imageId !== "string" || !UUID_PATTERN.test(imageId)) {
-        throw new RequestValidationError("invalid_image_id", "Image ID must be a UUID");
-      }
-
+      const imageId = parseImageContentRequest(request);
       const result = await getImageContentFromService(dependencies, imageId);
 
       response.status(200);
@@ -97,9 +37,7 @@ export function createImagesRouter(dependencies: ImagesRouterDependencies): Rout
 
   const listImages: RequestHandler = async (request, response, next) => {
     try {
-      const limit = parseLimit(request.query.limit);
-      const cursorValue = readQueryString(request.query.cursor, "cursor");
-      const cursor = cursorValue === undefined ? undefined : decodeImageListCursor(cursorValue);
+      const { cursor, limit } = parseImageListQuery(request.query);
       const body = await listGalleryImages(dependencies, {
         limit,
         cursor,
