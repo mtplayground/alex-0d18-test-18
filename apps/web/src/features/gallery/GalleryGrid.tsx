@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listImages } from "../../lib/api/listImages";
 import type { UploadedImageResponse } from "../../lib/api/uploadImages";
 
@@ -49,6 +49,20 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [manualRefreshKey, setManualRefreshKey] = useState(0);
   const [galleryState, setGalleryState] = useState<GalleryState>(INITIAL_GALLERY_STATE);
+  const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(() => new Set());
+
+  const loadedImageIds = useMemo(
+    () => galleryState.images.map((image) => image.id),
+    [galleryState.images],
+  );
+  const selectedLoadedImageIds = useMemo(
+    () => loadedImageIds.filter((imageId) => selectedImageIds.has(imageId)),
+    [loadedImageIds, selectedImageIds],
+  );
+  const selectedCount = selectedLoadedImageIds.length;
+  const hasLoadedImages = loadedImageIds.length > 0;
+  const areAllLoadedImagesSelected =
+    hasLoadedImages && selectedLoadedImageIds.length === loadedImageIds.length;
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -169,6 +183,36 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
     loadNextPage,
   ]);
 
+  const toggleImageSelection = useCallback((imageId: string) => {
+    setSelectedImageIds((currentImageIds) => {
+      const nextImageIds = new Set(currentImageIds);
+
+      if (nextImageIds.has(imageId)) {
+        nextImageIds.delete(imageId);
+      } else {
+        nextImageIds.add(imageId);
+      }
+
+      return nextImageIds;
+    });
+  }, []);
+
+  const selectAllLoadedImages = useCallback(() => {
+    setSelectedImageIds((currentImageIds) => {
+      const nextImageIds = new Set(currentImageIds);
+
+      for (const imageId of loadedImageIds) {
+        nextImageIds.add(imageId);
+      }
+
+      return nextImageIds;
+    });
+  }, [loadedImageIds]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedImageIds(new Set());
+  }, []);
+
   return (
     <section className="mx-auto w-full max-w-6xl px-5 pb-12 sm:px-8 lg:px-10">
       <div className="flex flex-col gap-4 border-t border-slate-200 pt-8 sm:flex-row sm:items-end sm:justify-between">
@@ -178,24 +222,47 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
             Uploaded images
           </h2>
         </div>
-        <button
-          className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-          type="button"
-          disabled={galleryState.isLoading}
-          onClick={() => {
-            setGalleryState((currentState) => ({
-              ...currentState,
-              isLoading: true,
-              isLoadingMore: false,
-              error: null,
-              nextCursor: null,
-              hasMore: false,
-            }));
-            setManualRefreshKey((value) => value + 1);
-          }}
-        >
-          Refresh
-        </button>
+        <div className="flex flex-col gap-2 sm:items-end">
+          <p className="text-sm text-slate-600" aria-live="polite">
+            {selectedCount} selected
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              disabled={!hasLoadedImages || galleryState.isLoading || areAllLoadedImagesSelected}
+              onClick={selectAllLoadedImages}
+            >
+              Select all
+            </button>
+            <button
+              className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              disabled={selectedCount === 0}
+              onClick={clearSelection}
+            >
+              Clear
+            </button>
+            <button
+              className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              disabled={galleryState.isLoading}
+              onClick={() => {
+                setGalleryState((currentState) => ({
+                  ...currentState,
+                  isLoading: true,
+                  isLoadingMore: false,
+                  error: null,
+                  nextCursor: null,
+                  hasMore: false,
+                }));
+                setManualRefreshKey((value) => value + 1);
+              }}
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
       </div>
 
       {galleryState.error !== null ? (
@@ -225,34 +292,70 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
 
       {!galleryState.isLoading && galleryState.images.length > 0 ? (
         <div className="mt-6 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4">
-          {galleryState.images.map((image) => (
-            <article
-              key={image.id}
-              className="overflow-hidden rounded border border-slate-200 bg-white"
-            >
-              <div className="aspect-square bg-slate-100">
-                <img
-                  className="h-full w-full object-cover"
-                  decoding="async"
-                  loading="lazy"
-                  src={image.url}
-                  alt={image.filename}
-                />
-              </div>
-              <div className="space-y-2 p-3">
-                <p className="truncate text-sm font-medium text-slate-950" title={image.filename}>
-                  {image.filename}
-                </p>
-                <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-                  <span>
-                    {image.dimensions.width} x {image.dimensions.height}
-                  </span>
-                  <span>{formatBytes(image.size)}</span>
+          {galleryState.images.map((image) => {
+            const isSelected = selectedImageIds.has(image.id);
+            const checkboxId = `select-image-${image.id}`;
+
+            return (
+              <article
+                key={image.id}
+                className={`group overflow-hidden rounded border bg-white transition ${
+                  isSelected
+                    ? "border-cyan-500 ring-2 ring-cyan-200"
+                    : "border-slate-200 hover:border-slate-300"
+                }`}
+                aria-pressed={isSelected}
+                role="button"
+                tabIndex={0}
+                onClick={() => toggleImageSelection(image.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    toggleImageSelection(image.id);
+                  }
+                }}
+              >
+                <div className="relative aspect-square bg-slate-100">
+                  <img
+                    className={`h-full w-full object-cover transition ${
+                      isSelected ? "brightness-95" : "group-hover:brightness-95"
+                    }`}
+                    decoding="async"
+                    loading="lazy"
+                    src={image.url}
+                    alt={image.filename}
+                  />
+                  <div className="absolute left-3 top-3 rounded bg-white/95 p-1 shadow-sm">
+                    <input
+                      id={checkboxId}
+                      className="h-5 w-5 rounded border-slate-300 text-cyan-700 focus:ring-cyan-600"
+                      type="checkbox"
+                      checked={isSelected}
+                      aria-label={`Select ${image.filename}`}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => toggleImageSelection(image.id)}
+                    />
+                  </div>
                 </div>
-                <p className="text-xs text-slate-500">{formatDate(image.uploadedAt)}</p>
-              </div>
-            </article>
-          ))}
+                <div className="space-y-2 p-3">
+                  <p
+                    className="truncate text-sm font-medium text-slate-950"
+                    id={`${checkboxId}-label`}
+                    title={image.filename}
+                  >
+                    {image.filename}
+                  </p>
+                  <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                    <span>
+                      {image.dimensions.width} x {image.dimensions.height}
+                    </span>
+                    <span>{formatBytes(image.size)}</span>
+                  </div>
+                  <p className="text-xs text-slate-500">{formatDate(image.uploadedAt)}</p>
+                </div>
+              </article>
+            );
+          })}
         </div>
       ) : null}
 
