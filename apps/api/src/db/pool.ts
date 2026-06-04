@@ -7,6 +7,9 @@ export function createDatabasePool(config = readDatabaseConfig()): Pool {
   const poolConfig: PoolConfig = {
     connectionString: config.connectionString,
     max: DEFAULT_POOL_SIZE,
+    ssl: {
+      rejectUnauthorized: false,
+    },
   };
 
   return new Pool(poolConfig);

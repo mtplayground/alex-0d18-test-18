@@ -12,6 +12,7 @@ export function createObjectStorageClient(config = readObjectStorageConfig()): O
       endpoint: config.endpoint,
       region: config.region,
       forcePathStyle: config.forcePathStyle,
+      requestChecksumCalculation: "WHEN_REQUIRED",
       credentials: {
         accessKeyId: config.accessKeyId,
         secretAccessKey: config.secretAccessKey,

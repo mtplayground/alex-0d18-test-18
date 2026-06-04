@@ -15,6 +15,41 @@ export interface AppDependencies {
   storage?: ObjectStorageClient;
 }
 
+function imageSourceDirectives(storage: ObjectStorageClient | undefined): string[] {
+  const directives = ["'self'", "data:"];
+
+  if (storage === undefined) {
+    return directives;
+  }
+
+  try {
+    directives.push(new URL(storage.config.publicBaseUrl).origin);
+  } catch {
+    directives.push(storage.config.publicBaseUrl);
+  }
+
+  return directives;
+}
+
+function toErrorLogDetails(error: unknown) {
+  if (error instanceof Error) {
+    const metadata = (error as Error & { $metadata?: { httpStatusCode?: unknown } }).$metadata;
+    const code = (error as Error & { code?: unknown }).code;
+
+    return {
+      name: error.name,
+      code,
+      message: error.message,
+      httpStatus: metadata?.httpStatusCode,
+      stack: error.stack?.split("\n").slice(0, 5).join("\n"),
+    };
+  }
+
+  return {
+    message: String(error),
+  };
+}
+
 export function createApp(dependencies: AppDependencies = {}) {
   const app = express();
 
@@ -26,7 +61,15 @@ export function createApp(dependencies: AppDependencies = {}) {
     app.locals.storage = dependencies.storage;
   }
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          "img-src": imageSourceDirectives(dependencies.storage),
+        },
+      },
+    }),
+  );
   app.use(cors());
   app.use(express.json({ limit: "1mb" }));
 
@@ -99,6 +142,8 @@ export function createApp(dependencies: AppDependencies = {}) {
     }
 
     const message = error instanceof Error ? error.message : "Unexpected server error";
+
+    console.error("[api error]", toErrorLogDetails(error));
 
     response.status(500).json({
       error: {

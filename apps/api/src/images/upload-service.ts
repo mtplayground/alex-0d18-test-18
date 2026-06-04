@@ -2,13 +2,13 @@ import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import Busboy from "busboy";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { PassThrough, type Readable } from "node:stream";
+import { type Readable } from "node:stream";
 import type { IncomingHttpHeaders } from "node:http";
 import type { Pool } from "pg";
 import sharp from "sharp";
 import { HttpError } from "../errors/http-error.js";
 import type { ObjectStorageClient } from "../storage/client.js";
-import { toObjectStorageKey, toPublicObjectUrl } from "../storage/keys.js";
+import { toObjectStorageKey } from "../storage/keys.js";
 import { createImageRecord } from "./image-repository.js";
 import {
   ALLOWED_IMAGE_CONTENT_TYPES,
@@ -17,6 +17,7 @@ import {
   UPLOAD_FIELD_NAMES,
 } from "./upload-constants.js";
 import {
+  toImageContentUrl,
   toUploadedImageResponse,
   type FailedImageUploadResponse,
   type UploadImagesResponse,
@@ -99,30 +100,15 @@ async function drainStream(stream: Readable): Promise<void> {
   });
 }
 
-async function streamFileToObjectStorage(
-  stream: Readable,
-  storage: ObjectStorageClient,
-  fullKey: string,
-  contentType: string,
-): Promise<StreamedFile> {
-  const passThrough = new PassThrough();
+async function readUploadStream(stream: Readable): Promise<StreamedFile> {
   const chunks: Buffer[] = [];
   let size = 0;
   let sizeExceeded = false;
 
-  const uploadPromise = storage.s3.send(
-    new PutObjectCommand({
-      Bucket: storage.config.bucket,
-      Key: fullKey,
-      Body: passThrough,
-      ContentType: contentType,
-    }),
-  );
-
-  const streamPromise = new Promise<StreamedFile>((resolve, reject) => {
+  return await new Promise<StreamedFile>((resolve, reject) => {
     stream.on("limit", () => {
       sizeExceeded = true;
-      passThrough.destroy(
+      reject(
         new UploadValidationError(
           "file_too_large",
           `Images must be ${MAX_IMAGE_SIZE_BYTES} bytes or smaller`,
@@ -135,7 +121,7 @@ async function streamFileToObjectStorage(
 
       if (size > MAX_IMAGE_SIZE_BYTES) {
         sizeExceeded = true;
-        passThrough.destroy(
+        reject(
           new UploadValidationError(
             "file_too_large",
             `Images must be ${MAX_IMAGE_SIZE_BYTES} bytes or smaller`,
@@ -145,13 +131,9 @@ async function streamFileToObjectStorage(
       }
 
       chunks.push(chunk);
-      passThrough.write(chunk);
     });
 
-    stream.once("error", (error) => {
-      passThrough.destroy(error);
-      reject(error);
-    });
+    stream.once("error", reject);
 
     stream.once("end", () => {
       if (sizeExceeded) {
@@ -164,28 +146,48 @@ async function streamFileToObjectStorage(
         return;
       }
 
-      passThrough.end();
       resolve({
         buffer: Buffer.concat(chunks, size),
         size,
       });
     });
   });
+}
 
-  const [streamResult, uploadResult] = await Promise.allSettled([streamPromise, uploadPromise]);
-
-  if (streamResult.status === "rejected") {
-    throw streamResult.reason;
-  }
-
-  if (uploadResult.status === "rejected") {
+async function putFileToObjectStorage(
+  file: StreamedFile,
+  storage: ObjectStorageClient,
+  fullKey: string,
+  contentType: string,
+): Promise<void> {
+  try {
+    await storage.s3.send(
+      new PutObjectCommand({
+        Bucket: storage.config.bucket,
+        Key: fullKey,
+        Body: file.buffer,
+        ContentLength: file.size,
+        ContentType: contentType,
+      }),
+    );
+  } catch {
     throw new UploadStorageError(
       "storage_upload_failed",
       "Image could not be saved to object storage. Try again.",
     );
   }
+}
 
-  return streamResult.value;
+async function streamFileToObjectStorage(
+  stream: Readable,
+  storage: ObjectStorageClient,
+  fullKey: string,
+  contentType: string,
+): Promise<StreamedFile> {
+  const streamedFile = await readUploadStream(stream);
+  await putFileToObjectStorage(streamedFile, storage, fullKey, contentType);
+
+  return streamedFile;
 }
 
 async function readImageDimensions(buffer: Buffer): Promise<{ width: number; height: number }> {
@@ -250,10 +252,7 @@ async function processImageFile(
       dimensions,
     });
 
-    return toUploadedImageResponse(
-      record,
-      toPublicObjectUrl(dependencies.storage.config, relativeKey),
-    );
+    return toUploadedImageResponse(record, toImageContentUrl(record.id));
   } catch (error) {
     if (uploadedObject) {
       try {

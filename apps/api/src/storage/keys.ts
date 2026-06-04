@@ -18,8 +18,24 @@ export function toObjectStorageKey(config: ObjectStorageConfig, relativeKey: str
 
 export function toPublicObjectUrl(config: ObjectStorageConfig, relativeKey: string): string {
   const fullKey = toObjectStorageKey(config, relativeKey);
-  const encodedKey = fullKey.split("/").map(encodeURIComponent).join("/");
   const baseUrl = config.publicBaseUrl.replace(/\/+$/, "");
+  const key = publicBaseUrlIncludesPrefix(baseUrl, config.prefix) ? relativeKey : fullKey;
+  const encodedKey = key.split("/").map(encodeURIComponent).join("/");
 
   return `${baseUrl}/${encodedKey}`;
+}
+
+function publicBaseUrlIncludesPrefix(baseUrl: string, prefix: string): boolean {
+  try {
+    const { pathname } = new URL(baseUrl);
+    const normalizedPath = pathname.replace(/^\/+|\/+$/g, "");
+    const normalizedPrefix = prefix.replace(/^\/+|\/+$/g, "");
+
+    return (
+      normalizedPath.split("/").slice(-normalizedPrefix.split("/").length).join("/") ===
+      normalizedPrefix
+    );
+  } catch {
+    return false;
+  }
 }

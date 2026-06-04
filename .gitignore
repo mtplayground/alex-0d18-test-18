@@ -3,6 +3,8 @@ node_modules/
 dist/
 playwright-report/
 test-results/
+.deploy_url
+verify-screenshot.png
 .gh_token
 .claude/
 .database_url

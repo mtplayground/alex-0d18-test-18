@@ -27,6 +27,10 @@ export interface UploadImagesResponse {
   failed: FailedImageUploadResponse[];
 }
 
+export function toImageContentUrl(imageId: string): string {
+  return `/api/images/${encodeURIComponent(imageId)}/content`;
+}
+
 export function toUploadedImageResponse(record: ImageRecord, url: string): UploadedImageResponse {
   return {
     id: record.id,

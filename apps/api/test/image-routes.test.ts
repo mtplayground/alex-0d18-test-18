@@ -342,7 +342,7 @@ describe("image API routes", () => {
         width: 2,
         height: 3,
       },
-      url: `https://cdn.example.test/test-prefix/${metadata.storageKey}`,
+      url: `/api/images/${FIRST_IMAGE_ID}/content`,
     });
     expect(response.body.failed).toEqual([]);
   });
@@ -406,12 +406,12 @@ describe("image API routes", () => {
     expect(response.body.images[0]).toMatchObject({
       id: FIRST_IMAGE_ID,
       filename: "first.png",
-      url: "https://cdn.example.test/test-prefix/uploads/first.png",
+      url: `/api/images/${FIRST_IMAGE_ID}/content`,
     });
     expect(response.body.images[1]).toMatchObject({
       id: SECOND_IMAGE_ID,
       filename: "second.png",
-      url: "https://cdn.example.test/test-prefix/uploads/second.png",
+      url: `/api/images/${SECOND_IMAGE_ID}/content`,
     });
     expect(response.body.page).toMatchObject({
       limit: 2,
