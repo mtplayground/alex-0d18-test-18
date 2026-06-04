@@ -47,6 +47,15 @@ class UploadValidationError extends Error {
   }
 }
 
+class UploadStorageError extends Error {
+  public readonly code: string;
+
+  public constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
 function failedUpload(filename: string, code: string, message: string): FailedImageUploadResponse {
   return {
     filename,
@@ -170,7 +179,10 @@ async function streamFileToObjectStorage(
   }
 
   if (uploadResult.status === "rejected") {
-    throw uploadResult.reason;
+    throw new UploadStorageError(
+      "storage_upload_failed",
+      "Image could not be saved to object storage. Try again.",
+    );
   }
 
   return streamResult.value;
@@ -244,7 +256,14 @@ async function processImageFile(
     );
   } catch (error) {
     if (uploadedObject) {
-      await deleteUploadedObject(dependencies.storage, fullKey);
+      try {
+        await deleteUploadedObject(dependencies.storage, fullKey);
+      } catch {
+        throw new UploadStorageError(
+          "storage_cleanup_failed",
+          "Image upload could not be completed because object storage cleanup failed. Try again.",
+        );
+      }
     }
 
     throw error;
@@ -253,6 +272,10 @@ async function processImageFile(
 
 function mapUploadError(filename: string, error: unknown): FailedImageUploadResponse {
   if (error instanceof UploadValidationError) {
+    return failedUpload(filename, error.code, error.message);
+  }
+
+  if (error instanceof UploadStorageError) {
     return failedUpload(filename, error.code, error.message);
   }
 

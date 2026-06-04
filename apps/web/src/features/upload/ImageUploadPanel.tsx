@@ -157,6 +157,11 @@ export function ImageUploadPanel({ onUploadComplete }: ImageUploadPanelProps) {
         continue;
       }
 
+      if (file.size === 0) {
+        rejectedMessages.push(`${file.name || "File"} is empty.`);
+        continue;
+      }
+
       if (file.size > MAX_IMAGE_SIZE_BYTES) {
         rejectedMessages.push(`${file.name || "File"} is larger than 10 MB.`);
         continue;
