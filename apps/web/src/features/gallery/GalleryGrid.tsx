@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { downloadImagesAsZip } from "../../lib/api/downloadImages";
 import { listImages } from "../../lib/api/listImages";
 import type { UploadedImageResponse } from "../../lib/api/uploadImages";
 
@@ -50,6 +51,8 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
   const [manualRefreshKey, setManualRefreshKey] = useState(0);
   const [galleryState, setGalleryState] = useState<GalleryState>(INITIAL_GALLERY_STATE);
   const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(() => new Set());
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const loadedImageIds = useMemo(
     () => galleryState.images.map((image) => image.id),
@@ -213,6 +216,37 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
     setSelectedImageIds(new Set());
   }, []);
 
+  const handleDownloadSelected = useCallback(async () => {
+    if (selectedLoadedImageIds.length === 0 || isDownloading) {
+      return;
+    }
+
+    setIsDownloading(true);
+    setDownloadError(null);
+
+    try {
+      const { blob, filename } = await downloadImagesAsZip({
+        imageIds: selectedLoadedImageIds,
+      });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = filename;
+      link.rel = "noopener";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      setDownloadError(
+        error instanceof Error ? error.message : "Selected images could not be downloaded",
+      );
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [isDownloading, selectedLoadedImageIds]);
+
   return (
     <section className="mx-auto w-full max-w-6xl px-5 pb-12 sm:px-8 lg:px-10">
       <div className="flex flex-col gap-4 border-t border-slate-200 pt-8 sm:flex-row sm:items-end sm:justify-between">
@@ -244,6 +278,16 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
               Clear
             </button>
             <button
+              className="rounded border border-cyan-700 bg-cyan-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500"
+              type="button"
+              disabled={selectedCount === 0 || isDownloading}
+              onClick={() => {
+                void handleDownloadSelected();
+              }}
+            >
+              {isDownloading ? "Downloading..." : "Download selected as zip"}
+            </button>
+            <button
               className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
               type="button"
               disabled={galleryState.isLoading}
@@ -268,6 +312,12 @@ export function GalleryGrid({ refreshKey }: GalleryGridProps) {
       {galleryState.error !== null ? (
         <p className="mt-5 rounded border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           {galleryState.error}
+        </p>
+      ) : null}
+
+      {downloadError !== null ? (
+        <p className="mt-5 rounded border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          {downloadError}
         </p>
       ) : null}
 
