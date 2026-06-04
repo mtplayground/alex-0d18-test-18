@@ -1,61 +1,30 @@
-# Architecture Plan
+Architecture plan for issues #53-#56
 
-## Product Context
+Project shape:
+- Node/TypeScript npm workspace with `apps/api`, `apps/web`, and `packages/shared`.
+- `apps/api` is an Express API serving image upload, listing, image content, and zip download.
+- `apps/web` is a React/Vite/Tailwind client that consumes the same-origin API.
+- `packages/shared` owns cross-boundary API contracts used by both app workspaces.
+- PostgreSQL stores image metadata; S3-compatible object storage stores uploaded image bytes.
 
-`alex-0d18-test-18` is a self-hostable image upload and gallery app. The current system already supports multi-file image upload, PostgreSQL metadata persistence, S3-compatible Object Storage for image bytes, responsive gallery browsing, selection, and zip download. Issues #35-#43 are a refactor and test-hardening batch; they should preserve endpoint contracts and user-visible behavior.
+Module structure and file organization:
+- Keep HTTP route modules in `apps/api/src/images/routes.ts` and `apps/api/src/downloads/routes.ts` thin.
+- Introduce/extend a shared API error module under `apps/api/src/errors/` for domain error classes, stable error codes, and one HTTP response mapper.
+- Add shared request schema/validation helpers under `apps/api/src/validation/`, then route upload/list/download inputs through that layer without changing accepted or rejected behavior.
+- Preserve repositories as the only DB access layer, especially `apps/api/src/images/image-repository.ts`.
+- Preserve `apps/api/src/storage/client.ts` as the only S3 SDK wrapper and keep storage keys relative outside the wrapper.
+- Keep business workflows in service modules under `apps/api/src/images/` and `apps/api/src/downloads/`; controllers should call services, services should call repositories/storage wrappers through explicit dependencies.
+- Keep shared response/request types in `packages/shared/src/index.ts` when they are part of the frontend/backend contract.
 
-## Current Module Structure
+Issue dependencies:
+- #53 comes first: establish the unified domain error hierarchy and central HTTP mapper.
+- #54 builds on #53: validation should throw/return the shared error types so routes use the central mapper.
+- #55 follows #53 and #54: tighten controller/service/repository boundaries once error and validation contracts are stable.
+- #56 comes last: run build, unit suites, and the upload -> display -> select -> zip download E2E after layering changes.
 
-- `apps/api`: Express + TypeScript backend.
-  - `src/app.ts`: Express composition, API mounts, SPA static serving, global error handler.
-  - `src/config`: environment parsing for PostgreSQL and Object Storage.
-  - `src/db`: PostgreSQL pool, migrations, and migration runner.
-  - `src/storage`: S3 client creation and key-prefix helpers.
-  - `src/images`: upload, list, image content route, metadata repository, pagination, response mapping, validation constants.
-  - `src/downloads`: selected-image zip route and zip assembly.
-- `apps/web`: React + Vite + Tailwind frontend.
-  - `src/app`: page shell.
-  - `src/features/upload`: upload panel, local preview queue, progress/status handling.
-  - `src/features/gallery`: gallery grid, pagination/infinite scroll, selection, and download action state.
-  - `src/lib/api`: upload/list/download API calls.
-- `packages/shared`: shared TypeScript contracts that can grow as API DTOs are centralized.
-- `tests/e2e`: Playwright upload -> display -> select -> zip download coverage.
-
-## Target Refactor Shape
-
-- Add a single backend storage wrapper for `PutObject`, `GetObject`, and `DeleteObject`.
-  - It owns prefix prepending, bucket selection, content-length forwarding, and S3 error translation.
-  - Callers pass relative keys only; repository rows continue storing relative keys.
-- Separate backend layers consistently.
-  - Routes/controllers parse HTTP input and return HTTP responses.
-  - Services coordinate validation, storage, zip assembly, and repository calls.
-  - Repositories own SQL and metadata mapping.
-- Split large backend handlers by workflow.
-  - Upload: request parsing, validation, image metadata extraction, storage write, persistence.
-  - List/content: pagination, record lookup, image stream retrieval.
-  - Download: request validation, record lookup, storage reads, zip stream assembly.
-- Extract frontend stateful workflows into hooks.
-  - Gallery hook: first page load, infinite scroll, refresh, selection, select-all/clear.
-  - Download hook: selected-ID validation, zip API call, browser download object URL lifecycle.
-  - Upload queue hook: file validation, preview URL lifecycle, progress, per-file status, completion callback.
-- Centralize frontend API error handling in one client helper that normalizes JSON error bodies and network failures.
-
-## Issue Dependencies
-
-1. #35 storage wrapper first, because upload, image content, and zip downloads all depend on S3 access.
-2. #36 service/repository boundaries next, so later splits have stable ownership.
-3. #37 module split after the boundaries are established.
-4. #38 and #39 frontend hook extractions can proceed after backend contracts remain stable.
-5. #40 API client error handling follows the hook extractions so callers share one error surface.
-6. #41 storage wrapper tests depend on #35.
-7. #42 zip/download failure tests depend on #37 and the storage wrapper.
-8. #43 E2E verification runs last to confirm the refactor batch preserved behavior.
-
-## Key Design Decisions
-
-- Preserve current public routes: `POST /api/images`, `GET /api/images`, `GET /api/images/:imageId/content`, and `POST /api/downloads/zip`.
-- Preserve PostgreSQL as the metadata store and Object Storage as the only binary store.
-- Keep Object Storage prefix isolation mandatory and unbypassable through the wrapper.
-- Keep production as one Express process serving `/api/*` and the built React app on `0.0.0.0:8080`.
-- Prefer dependency injection for services and repositories so tests can use fake storage streams and controlled database fixtures.
-- Avoid broad behavior changes in this batch; each issue should be a focused refactor or test addition with existing tests still passing.
+Key design decisions:
+- Preserve existing route paths, status codes, and JSON response shapes.
+- Prefer small refactors over broad rewrites; each issue should keep behavior unchanged unless the issue explicitly asks for test updates.
+- Do not add a second persistence or storage abstraction; use PostgreSQL repositories and the existing S3 wrapper.
+- Make validation and error mapping reusable across upload, list, image content, and download routes.
+- Tests should assert contracts and behavior, not internal folder layout.
