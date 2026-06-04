@@ -17,7 +17,9 @@
 - Gallery multi-select with select-all and clear actions.
 - Download selected images as an on-demand zip archive.
 - Backend unit tests for upload, list, and zip behavior.
-- Playwright E2E test covering upload -> display -> select -> zip download.
+- Backend unit tests for Object Storage wrapper prefix isolation and put/get/delete behavior.
+- Backend tests for zip/download failure paths, including storage read failures, missing objects, empty selections, and partial selections.
+- Playwright E2E test covering upload -> display -> select -> zip download, including image load and zip contents.
 - Self-hosted deployment path with one Express process serving both `/api/*` and the built React app.
 
 ## Architecture
@@ -26,6 +28,12 @@
 - `apps/web`: React, Vite, Tailwind frontend.
 - `apps/api`: Express API server in TypeScript.
 - `packages/shared`: shared TypeScript contracts.
+- Backend route modules delegate business logic to service modules and PostgreSQL access to repository modules.
+- Upload, list, image-content, and zip download behavior is split into focused modules for validation, streaming, metadata lookup, and zip response assembly.
+- Object Storage access is centralized behind `ObjectStorageClient`; feature code does not call S3 SDK commands directly.
+- Frontend gallery pagination, selection, and download state live in dedicated hooks.
+- Frontend upload queue state, progress, retry, validation messages, and preview cleanup live in a dedicated hook.
+- Frontend API helpers share common response parsing and error-message extraction.
 - Production server listens on `0.0.0.0:8080` by default and serves `apps/web/dist` unless `WEB_DIST_DIR` overrides it.
 - API routes:
   - `POST /api/images` uploads images.
