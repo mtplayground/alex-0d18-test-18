@@ -13,7 +13,7 @@ export function createApp() {
   app.get("/health", (_request, response) => {
     const body: HealthResponse = {
       ok: true,
-      service: "api"
+      service: "api",
     };
 
     response.json(body);
@@ -23,8 +23,8 @@ export function createApp() {
     response.status(404).json({
       error: {
         code: "not_found",
-        message: "Route not found"
-      }
+        message: "Route not found",
+      },
     });
   });
 
@@ -34,8 +34,8 @@ export function createApp() {
     response.status(500).json({
       error: {
         code: "internal_server_error",
-        message
-      }
+        message,
+      },
     });
   };
 
