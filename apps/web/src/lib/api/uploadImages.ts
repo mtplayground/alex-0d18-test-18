@@ -25,23 +25,99 @@ export interface UploadImagesResponse {
   failed: FailedImageUploadResponse[];
 }
 
-export async function uploadImages(files: File[]): Promise<UploadImagesResponse> {
+export interface UploadProgress {
+  loaded: number;
+  total: number;
+  percent: number;
+}
+
+interface UploadImagesOptions {
+  onProgress?: (progress: UploadProgress) => void;
+}
+
+function isUploadImagesResponse(body: unknown): body is UploadImagesResponse {
+  if (body === null || typeof body !== "object") {
+    return false;
+  }
+
+  return "uploaded" in body && "failed" in body;
+}
+
+function parseUploadResponse(responseText: string): unknown {
+  if (responseText.trim() === "") {
+    return {};
+  }
+
+  return JSON.parse(responseText) as unknown;
+}
+
+export async function uploadImages(
+  files: File[],
+  options: UploadImagesOptions = {},
+): Promise<UploadImagesResponse> {
   const formData = new FormData();
 
   for (const file of files) {
     formData.append("files", file, file.name);
   }
 
-  const response = await fetch("/api/images", {
-    method: "POST",
-    body: formData,
+  return await new Promise<UploadImagesResponse>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+
+    request.open("POST", "/api/images");
+
+    request.upload.onprogress = (event) => {
+      const total = event.lengthComputable
+        ? event.total
+        : files.reduce((sum, file) => sum + file.size, 0);
+      const percent = total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : 0;
+
+      options.onProgress?.({
+        loaded: event.loaded,
+        total,
+        percent,
+      });
+    };
+
+    request.onload = () => {
+      try {
+        const body = parseUploadResponse(request.responseText);
+
+        if (isUploadImagesResponse(body)) {
+          resolve(body);
+          return;
+        }
+
+        if (request.status >= 200 && request.status < 300) {
+          reject(new Error("Upload response was not recognized"));
+          return;
+        }
+
+        const message =
+          body !== null &&
+          typeof body === "object" &&
+          "error" in body &&
+          typeof body.error === "object" &&
+          body.error !== null &&
+          "message" in body.error &&
+          typeof body.error.message === "string"
+            ? body.error.message
+            : "Upload failed";
+
+        reject(new Error(message));
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error("Upload failed"));
+      }
+    };
+
+    request.onerror = () => {
+      reject(new Error("Upload failed"));
+    };
+
+    request.onabort = () => {
+      reject(new Error("Upload was cancelled"));
+    };
+
+    request.send(formData);
   });
-
-  const body = (await response.json()) as UploadImagesResponse | { error?: { message?: string } };
-
-  if (!response.ok && "error" in body) {
-    throw new Error(body.error?.message ?? "Upload failed");
-  }
-
-  return body as UploadImagesResponse;
 }
