@@ -1,4 +1,5 @@
 import { createApp } from "./app.js";
+import { createDatabasePool, verifyDatabaseConnection } from "./db/pool.js";
 
 const DEFAULT_PORT = 8080;
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -9,8 +10,29 @@ if (!Number.isInteger(PORT) || PORT <= 0 || PORT > 65535) {
   throw new Error(`Invalid PORT value: ${portValue}`);
 }
 
-const app = createApp();
+const database = createDatabasePool();
+await verifyDatabaseConnection(database);
 
-app.listen(PORT, HOST, () => {
+const app = createApp({ database });
+const server = app.listen(PORT, HOST, () => {
   console.log(`API listening on http://${HOST}:${PORT}`);
+});
+
+async function shutdown(): Promise<void> {
+  server.close((error) => {
+    if (error !== undefined) {
+      console.error(error);
+      process.exitCode = 1;
+    }
+  });
+
+  await database.end();
+}
+
+process.on("SIGINT", () => {
+  void shutdown();
+});
+
+process.on("SIGTERM", () => {
+  void shutdown();
 });
