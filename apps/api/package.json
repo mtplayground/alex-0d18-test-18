@@ -13,6 +13,7 @@
   "dependencies": {
     "@alex-0d18-test-18/shared": "file:../../packages/shared",
     "@aws-sdk/client-s3": "^3.637.0",
+    "archiver": "^7.0.1",
     "busboy": "^1.6.0",
     "cors": "^2.8.5",
     "express": "^4.19.2",
@@ -21,6 +22,7 @@
     "sharp": "^0.33.4"
   },
   "devDependencies": {
+    "@types/archiver": "^6.0.2",
     "@types/busboy": "^1.5.4",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",

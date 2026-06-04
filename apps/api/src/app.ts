@@ -3,6 +3,7 @@ import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import helmet from "helmet";
 import type { Pool } from "pg";
+import { createDownloadsRouter } from "./downloads/routes.js";
 import { HttpError } from "./errors/http-error.js";
 import { createImagesRouter } from "./images/routes.js";
 import type { ObjectStorageClient } from "./storage/client.js";
@@ -37,6 +38,13 @@ export function createApp(dependencies: AppDependencies = {}) {
   });
 
   if (dependencies.database !== undefined && dependencies.storage !== undefined) {
+    app.use(
+      "/api/downloads",
+      createDownloadsRouter({
+        database: dependencies.database,
+        storage: dependencies.storage,
+      }),
+    );
     app.use(
       "/api/images",
       createImagesRouter({
