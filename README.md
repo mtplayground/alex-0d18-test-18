@@ -16,6 +16,13 @@ Install dependencies:
 npm install
 ```
 
+Run database migrations:
+
+```bash
+export DATABASE_URL="postgres://..."
+npm run db:migrate
+```
+
 Run the frontend and API together:
 
 ```bash
@@ -28,4 +35,4 @@ Build every workspace:
 npm run build
 ```
 
-The API listens on `0.0.0.0:8080` by default. Set `PORT` or `HOST` to override that locally.
+The API listens on `0.0.0.0:8080` by default. Set `PORT` or `HOST` to override that locally. The API requires `DATABASE_URL` at startup and fails fast when it is not set.

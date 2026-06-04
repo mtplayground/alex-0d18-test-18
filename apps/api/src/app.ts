@@ -2,9 +2,18 @@ import type { HealthResponse } from "@alex-0d18-test-18/shared";
 import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import helmet from "helmet";
+import type { Pool } from "pg";
 
-export function createApp() {
+export interface AppDependencies {
+  database?: Pool;
+}
+
+export function createApp(dependencies: AppDependencies = {}) {
   const app = express();
+
+  if (dependencies.database !== undefined) {
+    app.locals.database = dependencies.database;
+  }
 
   app.use(helmet());
   app.use(cors());

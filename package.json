@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "concurrently \"npm:dev --workspace apps/api\" \"npm:dev --workspace apps/web\"",
     "build": "npm run build --workspaces",
+    "db:migrate": "npm run db:migrate --workspace apps/api",
     "typecheck": "npm run typecheck --workspaces",
     "lint": "eslint .",
     "format": "prettier --write .",
