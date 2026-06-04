@@ -2,11 +2,12 @@ import { Router, type RequestHandler } from "express";
 import type { Pool } from "pg";
 import { HttpError } from "../errors/http-error.js";
 import type { ObjectStorageClient } from "../storage/client.js";
-import { findImageRecordsByIds, listImageRecords } from "./image-repository.js";
-import { encodeImageListCursor, decodeImageListCursor } from "./pagination.js";
-import { handleUploadRequest } from "./upload-service.js";
-import { toListImageResponse, type ListImagesResponse } from "./list-response.js";
-import { toImageContentUrl } from "./upload-response.js";
+import {
+  getImageContent as getImageContentFromService,
+  listGalleryImages,
+  uploadImages as uploadImagesWithService,
+} from "./image-service.js";
+import { decodeImageListCursor } from "./pagination.js";
 
 interface ImagesRouterDependencies {
   database: Pool;
@@ -79,23 +80,17 @@ export function createImagesRouter(dependencies: ImagesRouterDependencies): Rout
         throw new HttpError(400, "invalid_image_id", "Image ID must be a UUID");
       }
 
-      const [record] = await findImageRecordsByIds(dependencies.database, [imageId]);
-
-      if (record === undefined) {
-        throw new HttpError(404, "image_not_found", "Image could not be found");
-      }
-
-      const result = await dependencies.storage.getObject(record.storageKey);
+      const result = await getImageContentFromService(dependencies, imageId);
 
       response.status(200);
-      response.setHeader("Content-Type", record.contentType);
+      response.setHeader("Content-Type", result.contentType);
       response.setHeader("Cache-Control", "private, max-age=300");
 
       if (result.contentLength !== undefined) {
         response.setHeader("Content-Length", String(result.contentLength));
       }
 
-      result.body.on("error", next).pipe(response);
+      result.stream.on("error", next).pipe(response);
     } catch (error) {
       next(error);
     }
@@ -106,27 +101,10 @@ export function createImagesRouter(dependencies: ImagesRouterDependencies): Rout
       const limit = parseLimit(request.query.limit);
       const cursorValue = readQueryString(request.query.cursor, "cursor");
       const cursor = cursorValue === undefined ? undefined : decodeImageListCursor(cursorValue);
-      const records = await listImageRecords(dependencies.database, {
-        limit: limit + 1,
+      const body = await listGalleryImages(dependencies, {
+        limit,
         cursor,
       });
-      const visibleRecords = records.slice(0, limit);
-      const hasMore = records.length > limit;
-      const lastVisibleRecord = visibleRecords.at(-1);
-      const nextCursor =
-        hasMore && lastVisibleRecord !== undefined
-          ? encodeImageListCursor(lastVisibleRecord)
-          : null;
-      const body: ListImagesResponse = {
-        images: visibleRecords.map((record) =>
-          toListImageResponse(record, toImageContentUrl(record.id)),
-        ),
-        page: {
-          limit,
-          nextCursor,
-          hasMore,
-        },
-      };
 
       response.json(body);
     } catch (error) {
@@ -136,7 +114,7 @@ export function createImagesRouter(dependencies: ImagesRouterDependencies): Rout
 
   const uploadImages: RequestHandler = async (request, response, next) => {
     try {
-      const result = await handleUploadRequest(request.headers, request, dependencies);
+      const result = await uploadImagesWithService(dependencies, request.headers, request);
       const statusCode = result.uploaded.length > 0 ? 201 : 400;
 
       response.status(statusCode).json(result);
