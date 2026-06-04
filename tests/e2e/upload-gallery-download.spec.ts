@@ -25,6 +25,19 @@ test("uploads, displays, selects, and downloads an image zip", async ({ page }) 
   const gallery = page.locator("section").filter({ hasText: "Uploaded images" });
 
   await expect(gallery.getByText("e2e-photo.png")).toBeVisible();
+  const galleryImage = gallery.getByRole("img", { name: "e2e-photo.png" });
+
+  await expect(galleryImage).toBeVisible();
+  await expect(galleryImage).toHaveAttribute("src", /\/api\/images\/.+\/content$/);
+  await expect
+    .poll(
+      async () =>
+        await galleryImage.evaluate((image) =>
+          image instanceof HTMLImageElement ? image.naturalWidth : 0,
+        ),
+    )
+    .toBeGreaterThan(0);
+
   await gallery.getByRole("checkbox", { name: "Select e2e-photo.png" }).check();
   await expect(gallery.getByText("1 selected")).toBeVisible();
 
@@ -42,6 +55,7 @@ test("uploads, displays, selects, and downloads an image zip", async ({ page }) 
   const archive = await JSZip.loadAsync(zipBuffer);
   const entry = archive.file("e2e-photo.png");
 
+  expect(Object.keys(archive.files)).toEqual(["e2e-photo.png"]);
   expect(entry).not.toBeNull();
 
   const entryBuffer = await entry?.async("nodebuffer");
