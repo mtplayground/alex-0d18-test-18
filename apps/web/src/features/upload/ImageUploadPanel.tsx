@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import { uploadImages, type UploadImagesResponse } from "../../lib/api/uploadImages";
+import { uploadImages } from "../../lib/api/uploadImages";
 
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_UPLOAD_FILES = 20;
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const ACCEPT_ATTRIBUTE = ACCEPTED_IMAGE_TYPES.join(",");
 
+type UploadStatus = "queued" | "uploading" | "success" | "failed";
+
 interface SelectedImage {
   id: string;
   file: File;
   previewUrl: string;
+  status: UploadStatus;
+  progress: number;
+  statusMessage: string;
 }
 
 interface UploadMessage {
@@ -22,6 +27,9 @@ function createSelectedImage(file: File): SelectedImage {
     id: crypto.randomUUID(),
     file,
     previewUrl: URL.createObjectURL(file),
+    status: "queued",
+    progress: 0,
+    statusMessage: "Ready",
   };
 }
 
@@ -37,18 +45,18 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function summarizeUpload(result: UploadImagesResponse): UploadMessage {
-  if (result.uploaded.length > 0 && result.failed.length === 0) {
+function summarizeUpload(uploadedCount: number, failedCount: number): UploadMessage {
+  if (uploadedCount > 0 && failedCount === 0) {
     return {
       tone: "success",
-      text: `${result.uploaded.length} image${result.uploaded.length === 1 ? "" : "s"} uploaded.`,
+      text: `${uploadedCount} image${uploadedCount === 1 ? "" : "s"} uploaded.`,
     };
   }
 
-  if (result.uploaded.length > 0) {
+  if (uploadedCount > 0) {
     return {
       tone: "info",
-      text: `${result.uploaded.length} uploaded, ${result.failed.length} rejected.`,
+      text: `${uploadedCount} uploaded, ${failedCount} failed.`,
     };
   }
 
@@ -56,6 +64,34 @@ function summarizeUpload(result: UploadImagesResponse): UploadMessage {
     tone: "error",
     text: "No images were uploaded.",
   };
+}
+
+function statusClassName(status: UploadStatus): string {
+  if (status === "success") {
+    return "bg-emerald-50 text-emerald-700";
+  }
+
+  if (status === "failed") {
+    return "bg-rose-50 text-rose-700";
+  }
+
+  if (status === "uploading") {
+    return "bg-cyan-50 text-cyan-700";
+  }
+
+  return "bg-slate-100 text-slate-600";
+}
+
+function progressBarClassName(status: UploadStatus): string {
+  if (status === "success") {
+    return "bg-emerald-500";
+  }
+
+  if (status === "failed") {
+    return "bg-rose-500";
+  }
+
+  return "bg-cyan-600";
 }
 
 function messageClassName(tone: UploadMessage["tone"]): string {
@@ -94,8 +130,19 @@ export function ImageUploadPanel() {
     () => selectedImages.reduce((sum, image) => sum + image.file.size, 0),
     [selectedImages],
   );
+  const pendingImages = selectedImages.filter((image) => image.status !== "success");
+
+  function updateImage(imageId: string, patch: Partial<SelectedImage>): void {
+    setSelectedImages((currentImages) =>
+      currentImages.map((image) => (image.id === imageId ? { ...image, ...patch } : image)),
+    );
+  }
 
   function addFiles(fileList: FileList | File[]): void {
+    if (isSubmitting) {
+      return;
+    }
+
     const incomingFiles = Array.from(fileList);
     const acceptedFiles: File[] = [];
     const rejectedMessages: string[] = [];
@@ -207,26 +254,102 @@ export function ImageUploadPanel() {
   }
 
   async function handleSubmit(): Promise<void> {
-    if (selectedImages.length === 0 || isSubmitting) {
+    if (pendingImages.length === 0 || isSubmitting) {
       return;
     }
 
     setIsSubmitting(true);
     setMessage(null);
 
-    try {
-      const result = await uploadImages(selectedImages.map((image) => image.file));
-      setMessage(summarizeUpload(result));
+    const uploadTargets = pendingImages;
+    let uploadedCount = 0;
+    let failedCount = 0;
 
-      if (result.uploaded.length > 0 && result.failed.length === 0) {
-        clearImages({ clearMessage: false });
-      }
-    } catch (error) {
-      const text = error instanceof Error ? error.message : "Upload failed";
-      setMessage({ tone: "error", text });
-    } finally {
-      setIsSubmitting(false);
+    await Promise.all(
+      uploadTargets.map(async (image) => {
+        updateImage(image.id, {
+          status: "uploading",
+          progress: 0,
+          statusMessage: "Uploading",
+        });
+
+        try {
+          const result = await uploadImages([image.file], {
+            onProgress: (progress) => {
+              updateImage(image.id, {
+                progress: Math.min(progress.percent, 99),
+                statusMessage: `${Math.min(progress.percent, 99)}%`,
+              });
+            },
+          });
+          const failed = result.failed[0];
+
+          if (result.uploaded.length > 0) {
+            uploadedCount += 1;
+            updateImage(image.id, {
+              status: "success",
+              progress: 100,
+              statusMessage: "Uploaded",
+            });
+            return;
+          }
+
+          failedCount += 1;
+          updateImage(image.id, {
+            status: "failed",
+            progress: 100,
+            statusMessage: failed?.error.message ?? "Upload failed",
+          });
+        } catch (error) {
+          failedCount += 1;
+          updateImage(image.id, {
+            status: "failed",
+            progress: 100,
+            statusMessage: error instanceof Error ? error.message : "Upload failed",
+          });
+        }
+      }),
+    );
+
+    setMessage(summarizeUpload(uploadedCount, failedCount));
+    setIsSubmitting(false);
+  }
+
+  function retryFailed(): void {
+    setSelectedImages((currentImages) =>
+      currentImages.map((image) => {
+        if (image.status !== "failed") {
+          return image;
+        }
+
+        return {
+          ...image,
+          status: "queued",
+          progress: 0,
+          statusMessage: "Ready",
+        };
+      }),
+    );
+    setMessage(null);
+  }
+
+  function queuedSelectionCount(): number {
+    return selectedImages.filter((image) => image.status === "queued" || image.status === "failed")
+      .length;
+  }
+
+  function uploadButtonLabel(): string {
+    if (isSubmitting) {
+      return "Uploading";
     }
+
+    const count = queuedSelectionCount();
+
+    if (count === 0 && selectedImages.length > 0) {
+      return "Uploaded";
+    }
+
+    return "Upload selected";
   }
 
   return (
@@ -302,16 +425,28 @@ export function ImageUploadPanel() {
         <aside className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-base font-semibold tracking-normal text-slate-950">Selection</h2>
-            <button
-              className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-              type="button"
-              disabled={selectedImages.length === 0 || isSubmitting}
-              onClick={() => {
-                clearImages();
-              }}
-            >
-              Clear
-            </button>
+            <div className="flex gap-2">
+              <button
+                className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                type="button"
+                disabled={
+                  isSubmitting || !selectedImages.some((image) => image.status === "failed")
+                }
+                onClick={retryFailed}
+              >
+                Retry
+              </button>
+              <button
+                className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                type="button"
+                disabled={selectedImages.length === 0 || isSubmitting}
+                onClick={() => {
+                  clearImages();
+                }}
+              >
+                Clear
+              </button>
+            </div>
           </div>
 
           {message !== null ? (
@@ -337,8 +472,33 @@ export function ImageUploadPanel() {
                     alt=""
                   />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-950">{image.file.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-medium text-slate-950">
+                        {image.file.name}
+                      </p>
+                      <span
+                        className={`max-w-[140px] shrink-0 truncate rounded px-2 py-1 text-xs font-medium ${statusClassName(
+                          image.status,
+                        )}`}
+                        title={image.statusMessage}
+                      >
+                        {image.statusMessage}
+                      </span>
+                    </div>
                     <p className="mt-1 text-xs text-slate-500">{formatBytes(image.file.size)}</p>
+                    <div
+                      className="mt-2 h-2 overflow-hidden rounded bg-slate-100"
+                      aria-label={`${image.file.name} upload progress`}
+                      aria-valuemax={100}
+                      aria-valuemin={0}
+                      aria-valuenow={image.progress}
+                      role="progressbar"
+                    >
+                      <div
+                        className={`h-full transition-all ${progressBarClassName(image.status)}`}
+                        style={{ width: `${image.progress}%` }}
+                      />
+                    </div>
                   </div>
                   <button
                     className="grid h-8 w-8 place-items-center rounded border border-slate-300 text-lg leading-none text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
@@ -357,12 +517,12 @@ export function ImageUploadPanel() {
           <button
             className="mt-auto rounded bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-700 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
-            disabled={selectedImages.length === 0 || isSubmitting}
+            disabled={pendingImages.length === 0 || isSubmitting}
             onClick={() => {
               void handleSubmit();
             }}
           >
-            {isSubmitting ? "Uploading" : "Upload selected"}
+            {uploadButtonLabel()}
           </button>
         </aside>
       </div>
