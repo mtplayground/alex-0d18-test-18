@@ -1,4 +1,4 @@
-import { HttpError } from "../errors/http-error.js";
+import { RequestValidationError } from "../errors/http-error.js";
 import type { ImageRecord } from "./image-record.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -55,6 +55,6 @@ export function decodeImageListCursor(cursor: string): ImageListCursor {
       id: parsed.id,
     };
   } catch {
-    throw new HttpError(400, "invalid_cursor", "Pagination cursor is invalid");
+    throw new RequestValidationError("invalid_cursor", "Pagination cursor is invalid");
   }
 }

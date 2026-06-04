@@ -1,6 +1,6 @@
 import { type Readable } from "node:stream";
 import type { Pool } from "pg";
-import { HttpError } from "../errors/http-error.js";
+import { NotFoundError, UpstreamStorageError } from "../errors/http-error.js";
 import { findImageRecordsByIds } from "../images/image-repository.js";
 import type { ImageRecord } from "../images/image-record.js";
 import type { ObjectStorageClient } from "../storage/client.js";
@@ -31,8 +31,7 @@ async function getImageObjectStream(
 
     return result.body;
   } catch {
-    throw new HttpError(
-      502,
+    throw new UpstreamStorageError(
       "storage_unavailable",
       "One or more selected images could not be read from object storage",
     );
@@ -47,7 +46,7 @@ export async function prepareZipDownload(
   const records = await findImageRecordsByIds(dependencies.database, imageIds);
 
   if (records.length !== imageIds.length) {
-    throw new HttpError(404, "images_not_found", "One or more images could not be found");
+    throw new NotFoundError("images_not_found", "One or more images could not be found");
   }
 
   const usedNames = new Set<string>();

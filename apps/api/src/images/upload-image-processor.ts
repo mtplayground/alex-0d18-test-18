@@ -1,10 +1,10 @@
 import { type Readable } from "node:stream";
 import type { Pool } from "pg";
 import sharp from "sharp";
+import { UploadStorageError, UploadValidationError } from "../errors/http-error.js";
 import type { ObjectStorageClient } from "../storage/client.js";
 import { createImageRecord } from "./image-repository.js";
 import { ALLOWED_IMAGE_CONTENT_TYPES } from "./upload-constants.js";
-import { UploadStorageError, UploadValidationError } from "./upload-errors.js";
 import { buildRelativeStorageKey, sanitizeFilename } from "./upload-filenames.js";
 import { drainStream, readUploadStream, type StreamedFile } from "./upload-stream.js";
 import {

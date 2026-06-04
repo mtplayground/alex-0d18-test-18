@@ -5,7 +5,7 @@ import helmet from "helmet";
 import path from "node:path";
 import type { Pool } from "pg";
 import { createDownloadsRouter } from "./downloads/routes.js";
-import { HttpError } from "./errors/http-error.js";
+import { mapErrorToHttpResponse } from "./errors/http-error.js";
 import { createImagesRouter } from "./images/routes.js";
 import type { ObjectStorageClient } from "./storage/client.js";
 
@@ -131,26 +131,13 @@ export function createApp(dependencies: AppDependencies = {}) {
   });
 
   const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => {
-    if (error instanceof HttpError) {
-      response.status(error.statusCode).json({
-        error: {
-          code: error.code,
-          message: error.message,
-        },
-      });
-      return;
+    const mappedError = mapErrorToHttpResponse(error);
+
+    if (mappedError.shouldLog) {
+      console.error("[api error]", toErrorLogDetails(error));
     }
 
-    const message = error instanceof Error ? error.message : "Unexpected server error";
-
-    console.error("[api error]", toErrorLogDetails(error));
-
-    response.status(500).json({
-      error: {
-        code: "internal_server_error",
-        message,
-      },
-    });
+    response.status(mappedError.statusCode).json(mappedError.body);
   };
 
   app.use(errorHandler);
