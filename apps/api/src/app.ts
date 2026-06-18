@@ -8,6 +8,7 @@ import { createDownloadsRouter } from "./downloads/routes.js";
 import { mapErrorToHttpResponse } from "./errors/http-error.js";
 import { createImagesRouter } from "./images/routes.js";
 import { createImageServiceDependencies } from "./images/image-service.js";
+import { parseImageListQuery } from "./validation/request-schemas.js";
 import type { ObjectStorageClient } from "./storage/client.js";
 
 export interface AppDependencies {
@@ -91,6 +92,23 @@ export function createApp(dependencies: AppDependencies = {}) {
 
     app.use("/api/downloads", createDownloadsRouter(serviceDependencies));
     app.use("/api/images", createImagesRouter(serviceDependencies));
+  } else if (dependencies.database !== undefined) {
+    app.get("/api/images", (request, response, next) => {
+      try {
+        const { limit } = parseImageListQuery(request.query);
+
+        response.json({
+          images: [],
+          page: {
+            limit,
+            nextCursor: null,
+            hasMore: false,
+          },
+        });
+      } catch (error) {
+        next(error);
+      }
+    });
   }
 
   app.use("/api", (_request, response) => {

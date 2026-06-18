@@ -26,10 +26,10 @@ function readBooleanEnv(name: string): boolean {
 }
 
 function readPrefix(): string {
-  const prefix = readRequiredEnv("S3_PREFIX");
+  const prefix = readRequiredEnv("OBJECT_STORAGE_PREFIX");
 
   if (!prefix.endsWith("/")) {
-    throw new Error("S3_PREFIX must end with a trailing slash");
+    throw new Error("OBJECT_STORAGE_PREFIX must end with a trailing slash");
   }
 
   return prefix;
@@ -37,13 +37,13 @@ function readPrefix(): string {
 
 export function readObjectStorageConfig(): ObjectStorageConfig {
   return {
-    accessKeyId: readRequiredEnv("S3_ACCESS_KEY_ID"),
-    secretAccessKey: readRequiredEnv("S3_SECRET_ACCESS_KEY"),
-    bucket: readRequiredEnv("S3_BUCKET"),
+    accessKeyId: readRequiredEnv("OBJECT_STORAGE_ACCESS_KEY_ID"),
+    secretAccessKey: readRequiredEnv("OBJECT_STORAGE_SECRET_ACCESS_KEY"),
+    bucket: readRequiredEnv("OBJECT_STORAGE_BUCKET"),
     prefix: readPrefix(),
-    endpoint: readRequiredEnv("S3_ENDPOINT"),
-    region: readRequiredEnv("S3_REGION"),
-    forcePathStyle: readBooleanEnv("S3_FORCE_PATH_STYLE"),
+    endpoint: readRequiredEnv("OBJECT_STORAGE_ENDPOINT"),
+    region: readRequiredEnv("OBJECT_STORAGE_REGION"),
+    forcePathStyle: readBooleanEnv("OBJECT_STORAGE_FORCE_PATH_STYLE"),
     publicBaseUrl: readRequiredEnv("S3_PUBLIC_BASE_URL"),
   };
 }

@@ -1,6 +1,6 @@
 import { createApp } from "./app.js";
 import { createDatabasePool, verifyDatabaseConnection } from "./db/pool.js";
-import { createObjectStorageClient } from "./storage/client.js";
+import { createObjectStorageClient, type ObjectStorageClient } from "./storage/client.js";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_PORT = 8080;
@@ -18,7 +18,21 @@ if (!Number.isInteger(PORT) || PORT <= 0 || PORT > 65535) {
 
 const database = createDatabasePool();
 await verifyDatabaseConnection(database);
-const storage = createObjectStorageClient();
+let storage: ObjectStorageClient | undefined;
+
+try {
+  storage = createObjectStorageClient();
+} catch (error) {
+  if (
+    error instanceof Error &&
+    error.message.startsWith("OBJECT_STORAGE_") &&
+    error.message.endsWith(" environment variable is required")
+  ) {
+    storage = undefined;
+  } else {
+    throw error;
+  }
+}
 
 const app = createApp({ database, staticAssetsPath, storage });
 const server = app.listen(PORT, HOST, () => {
